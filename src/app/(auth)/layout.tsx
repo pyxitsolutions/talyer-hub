@@ -1,4 +1,4 @@
-import { Wrench } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 
@@ -18,9 +18,14 @@ export default function AuthLayout({
         href="/login"
         className="relative mb-8 flex items-center gap-2.5 text-foreground transition-opacity hover:opacity-80"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <Wrench className="h-5 w-5" />
-        </div>
+        <Image
+          src="/favicon.png"
+          alt={APP_NAME}
+          width={40}
+          height={40}
+          className="rounded-xl"
+          priority
+        />
         <span className="text-xl font-semibold tracking-tight">{APP_NAME}</span>
       </Link>
 
