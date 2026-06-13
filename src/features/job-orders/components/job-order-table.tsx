@@ -33,6 +33,10 @@ import {
 import type { JobOrderFormValues } from "../schemas";
 import { JobOrderDialog } from "./job-order-dialog";
 
+function getLinkedInvoiceNumber(jobOrder: JobOrderWithRelations): string | null {
+  return jobOrder.invoices?.[0]?.invoice_number ?? null;
+}
+
 export function JobOrderTable() {
   const queryClient = useQueryClient();
   const invalidateDashboard = useInvalidateDashboard();
@@ -201,7 +205,15 @@ export function JobOrderTable() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
+                disabled={!!getLinkedInvoiceNumber(row.original)}
                 onClick={() => {
+                  const linkedInvoice = getLinkedInvoiceNumber(row.original);
+                  if (linkedInvoice) {
+                    toast.error(
+                      `Cannot delete: invoice ${linkedInvoice} is linked to this job order.`
+                    );
+                    return;
+                  }
                   setSelectedJobOrder(row.original);
                   setDeleteOpen(true);
                 }}

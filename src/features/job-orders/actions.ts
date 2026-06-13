@@ -27,6 +27,7 @@ export interface JobOrderWithRelations extends Omit<JobOrder, "repair_estimates"
   vehicles: Vehicle;
   job_order_parts: JobOrderPart[];
   repair_estimates?: RepairEstimate | null;
+  invoices?: { invoice_number: string }[] | null;
 }
 
 interface InventoryDeduction {
@@ -34,17 +35,54 @@ interface InventoryDeduction {
   quantity: number;
 }
 
-async function assertCanReleaseJobOrder(
+async function getLinkedInvoice(
   supabase: Awaited<ReturnType<typeof createClient>>,
   shopId: string,
   jobOrderId: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data: invoice, error } = await supabase
+) {
+  return supabase
     .from("invoices")
     .select("invoice_number, payment_status")
     .eq("job_order_id", jobOrderId)
     .eq("shop_id", shopId)
     .maybeSingle();
+}
+
+async function assertCanDeleteJobOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  jobOrderId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: invoice, error } = await getLinkedInvoice(
+    supabase,
+    shopId,
+    jobOrderId
+  );
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  if (invoice) {
+    return {
+      ok: false,
+      error: `Cannot delete job order: invoice ${invoice.invoice_number} is linked. Keep both records for billing and audit trail.`,
+    };
+  }
+
+  return { ok: true };
+}
+
+async function assertCanReleaseJobOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  jobOrderId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: invoice, error } = await getLinkedInvoice(
+    supabase,
+    shopId,
+    jobOrderId
+  );
 
   if (error) {
     return { ok: false, error: error.message };
@@ -95,6 +133,37 @@ export async function getJobOrderReleaseEligibility(
       success: false,
       error:
         err instanceof Error ? err.message : "Failed to check release eligibility",
+    };
+  }
+}
+
+export async function getJobOrderDeleteEligibility(
+  jobOrderId: string
+): Promise<ActionResult<{ canDelete: boolean; message: string }>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+    const result = await assertCanDeleteJobOrder(supabase, shopId, jobOrderId);
+
+    if (result.ok) {
+      return {
+        success: true,
+        data: {
+          canDelete: true,
+          message: "No linked invoice. This job order can be deleted.",
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: { canDelete: false, message: result.error },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Failed to check delete eligibility",
     };
   }
 }
@@ -229,7 +298,7 @@ export async function getJobOrders(
     let query = supabase
       .from("job_orders")
       .select(
-        "*, customers(*), vehicles(*), job_order_parts(*), repair_estimates(estimate_number)"
+        "*, customers(*), vehicles(*), job_order_parts(*), repair_estimates(estimate_number), invoices(invoice_number)"
       )
       .eq("shop_id", shopId)
       .order("created_at", { ascending: false });
@@ -266,7 +335,7 @@ export async function getJobOrder(
     const { data, error } = await supabase
       .from("job_orders")
       .select(
-        "*, customers(*), vehicles(*), job_order_parts(*), repair_estimates(*)"
+        "*, customers(*), vehicles(*), job_order_parts(*), repair_estimates(*), invoices(invoice_number)"
       )
       .eq("id", id)
       .eq("shop_id", shopId)
@@ -547,6 +616,11 @@ export async function deleteJobOrder(id: string): Promise<ActionResult> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+
+    const deleteCheck = await assertCanDeleteJobOrder(supabase, shopId, id);
+    if (!deleteCheck.ok) {
+      return { success: false, error: deleteCheck.error };
+    }
 
     const { data: existingParts, error: partsError } = await supabase
       .from("job_order_parts")

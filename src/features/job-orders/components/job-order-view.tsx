@@ -153,6 +153,14 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
         </Card>
       </div>
 
+      {jobOrder.invoices?.[0] && (
+        <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-900 dark:text-blue-100">
+          <strong>Linked invoice.</strong> Invoice{" "}
+          {jobOrder.invoices[0].invoice_number} is tied to this job order. It
+          cannot be deleted while the invoice exists.
+        </div>
+      )}
+
       {jobOrder.status === "completed" &&
         releaseInfo &&
         !releaseInfo.canRelease && (
