@@ -222,8 +222,8 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Create Job Order</CardTitle>
             <CardDescription>
-              Log the unit in Units Received first, then select it here before
-              converting this estimate.
+              Log a fresh unit in Units Received for this visit, then select it
+              here before converting this estimate.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -246,14 +246,15 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
             </div>
             {availableUnits.length === 0 && (
               <p className="text-sm text-amber-600 dark:text-amber-400">
-                No unit log found for this vehicle.{" "}
+                No current unit log is available for this vehicle. Log a fresh
+                unit in{" "}
                 <Link
                   href="/dashboard/units-received"
                   className="font-medium underline underline-offset-4"
                 >
-                  Log unit in Units Received
+                  Units Received
                 </Link>{" "}
-                before creating a job order.
+                for this visit before creating a job order.
               </p>
             )}
           </CardContent>

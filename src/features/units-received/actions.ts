@@ -5,7 +5,13 @@ import { revalidatePath } from "next/cache";
 import { getShopId } from "@/lib/auth";
 import { UNIT_CATEGORIES } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
-import type { Customer, UnitCategory, UnitReceived, Vehicle } from "@/types/database";
+import type { Customer, JobOrder, UnitCategory, UnitReceived, Vehicle } from "@/types/database";
+import {
+  getUnitJobOrderEligibility,
+  getUnitLogCutoffDate,
+  type UnitJobOrderEligibility,
+  buildLastClosedAtByVehicle,
+} from "@/lib/units/job-order-eligibility";
 import {
   unitReceivedFormSchema,
   type UnitReceivedFormValues,
@@ -18,6 +24,8 @@ export type ActionResult<T = void> =
 export interface UnitReceivedWithRelations extends UnitReceived {
   customers?: Customer | null;
   vehicles?: Vehicle | null;
+  job_orders?: Pick<JobOrder, "job_order_number" | "status"> | null;
+  job_order_eligibility?: UnitJobOrderEligibility;
 }
 
 export interface UnitsChartDataPoint {
@@ -109,7 +117,9 @@ export async function getUnitsReceived(
 
     let query = supabase
       .from("units_received")
-      .select("*, customers(full_name, customer_number), vehicles(plate_number, brand, model)")
+      .select(
+        "*, customers(full_name, customer_number), vehicles(plate_number, brand, model), job_orders(job_order_number, status)"
+      )
       .eq("shop_id", shopId)
       .order("received_date", { ascending: false });
 
@@ -124,7 +134,39 @@ export async function getUnitsReceived(
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: (data ?? []) as UnitReceivedWithRelations[] };
+    const units = (data ?? []) as UnitReceivedWithRelations[];
+    const vehicleIds = [
+      ...new Set(units.map((unit) => unit.vehicle_id).filter(Boolean)),
+    ] as string[];
+
+    let lastClosedAtByVehicle = new Map<string, string>();
+    if (vehicleIds.length > 0) {
+      const { data: closedJobs, error: closedJobsError } = await supabase
+        .from("job_orders")
+        .select("vehicle_id, updated_at")
+        .eq("shop_id", shopId)
+        .in("vehicle_id", vehicleIds)
+        .in("status", ["completed", "released"])
+        .order("updated_at", { ascending: false });
+
+      if (closedJobsError) {
+        return { success: false, error: closedJobsError.message };
+      }
+
+      lastClosedAtByVehicle = buildLastClosedAtByVehicle(closedJobs ?? []);
+    }
+
+    const cutoffDate = getUnitLogCutoffDate();
+    const enrichedUnits = units.map((unit) => ({
+      ...unit,
+      job_order_eligibility: getUnitJobOrderEligibility(
+        unit,
+        lastClosedAtByVehicle,
+        cutoffDate
+      ),
+    }));
+
+    return { success: true, data: enrichedUnits };
   } catch (err) {
     return {
       success: false,

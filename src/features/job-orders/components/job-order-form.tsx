@@ -244,20 +244,21 @@ export function JobOrderForm({
           />
           {vehicleId && availableUnits.length === 0 && (
             <p className="text-sm text-amber-600 dark:text-amber-400">
-              No unit log found for this vehicle.{" "}
+              No current unit log is available for this vehicle. Log a fresh unit
+              in{" "}
               <Link
                 href="/dashboard/units-received"
                 className="font-medium underline underline-offset-4"
               >
-                Log unit in Units Received
+                Units Received
               </Link>{" "}
-              before creating a job order.
+              for this visit before creating a job order.
             </p>
           )}
           {!vehicleId && (
             <p className="text-sm text-muted-foreground">
-              The vehicle must be logged in Units Received before you can create
-              a job order.
+              Select a vehicle, then choose an open unit log from the current
+              visit.
             </p>
           )}
           {errors.unit_received_id && (

@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buildLastClosedAtByVehicle,
+  getUnitLogCutoffDate,
+  isUnitLogEligibleForJobOrder,
+} from "@/lib/units/job-order-eligibility";
 import { generateNumber } from "@/lib/utils";
 import type {
   Customer,
@@ -35,6 +40,30 @@ interface InventoryDeduction {
   quantity: number;
 }
 
+async function getLastClosedAtByVehicle(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  vehicleIds: string[]
+): Promise<Map<string, string>> {
+  if (vehicleIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from("job_orders")
+    .select("vehicle_id, updated_at")
+    .eq("shop_id", shopId)
+    .in("vehicle_id", vehicleIds)
+    .in("status", ["completed", "released"])
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return buildLastClosedAtByVehicle(data ?? []);
+}
+
 async function getLinkedInvoice(
   supabase: Awaited<ReturnType<typeof createClient>>,
   shopId: string,
@@ -57,7 +86,7 @@ async function assertUnitReceivedForJobOrder(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: unit, error } = await supabase
     .from("units_received")
-    .select("id, customer_id, vehicle_id, job_order_id")
+    .select("id, customer_id, vehicle_id, job_order_id, received_date, created_at")
     .eq("id", unitReceivedId)
     .eq("shop_id", shopId)
     .maybeSingle();
@@ -92,6 +121,20 @@ async function assertUnitReceivedForJobOrder(
     return {
       ok: false,
       error: "Selected unit log does not match the job order customer.",
+    };
+  }
+
+  const lastClosedAtByVehicle = await getLastClosedAtByVehicle(supabase, shopId, [
+    unit.vehicle_id,
+  ]);
+
+  if (
+    !isUnitLogEligibleForJobOrder(unit, lastClosedAtByVehicle, getUnitLogCutoffDate())
+  ) {
+    return {
+      ok: false,
+      error:
+        "This unit log is no longer available for a new job order. Log the unit again in Units Received for the current visit.",
     };
   }
 
@@ -520,20 +563,38 @@ export async function getAvailableUnitsForJobOrder(
 
     const shopId = await getShopId();
     const supabase = await createClient();
+    const cutoffDate = getUnitLogCutoffDate();
 
     const { data, error } = await supabase
       .from("units_received")
-      .select("id, received_date, category, notes")
+      .select("id, received_date, category, notes, created_at, job_order_id, vehicle_id")
       .eq("shop_id", shopId)
       .eq("vehicle_id", vehicleId)
       .is("job_order_id", null)
-      .order("received_date", { ascending: false });
+      .gte("received_date", cutoffDate)
+      .order("received_date", { ascending: false })
+      .order("created_at", { ascending: false });
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: data ?? [] };
+    const lastClosedAtByVehicle = await getLastClosedAtByVehicle(supabase, shopId, [
+      vehicleId,
+    ]);
+
+    const eligibleUnits = (data ?? [])
+      .filter((unit) =>
+        isUnitLogEligibleForJobOrder(unit, lastClosedAtByVehicle, cutoffDate)
+      )
+      .map(({ id, received_date, category, notes }) => ({
+        id,
+        received_date,
+        category,
+        notes,
+      }));
+
+    return { success: true, data: eligibleUnits };
   } catch (err) {
     return {
       success: false,

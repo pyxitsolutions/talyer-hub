@@ -19,7 +19,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UNIT_CATEGORIES } from "@/lib/constants";
-import { formatDate } from "@/lib/utils";
+import { unitJobOrderEligibilityLabel } from "@/lib/units/job-order-eligibility";
+import { cn, formatDate } from "@/lib/utils";
 import { getCustomers } from "@/features/customers/actions";
 import { getVehicles } from "@/features/vehicles/actions";
 import type { UnitReceived } from "@/types/database";
@@ -37,6 +38,20 @@ import { UnitsReceivedDialog } from "./units-received-dialog";
 
 function getCategoryLabel(value: string) {
   return UNIT_CATEGORIES.find((c) => c.value === value)?.label ?? value;
+}
+
+function getEligibilityClassName(
+  eligibility: UnitReceivedWithRelations["job_order_eligibility"]
+) {
+  if (eligibility === "ready") {
+    return "text-green-700 dark:text-green-400";
+  }
+
+  if (eligibility === "linked") {
+    return "text-blue-700 dark:text-blue-300";
+  }
+
+  return "text-amber-700 dark:text-amber-400";
 }
 
 export function UnitsReceivedTable() {
@@ -164,6 +179,25 @@ export function UnitsReceivedTable() {
         cell: ({ row }) => row.original.notes ?? "—",
       },
       {
+        id: "job_order_status",
+        header: "Job Order",
+        cell: ({ row }) => {
+          const eligibility = row.original.job_order_eligibility ?? "unavailable";
+
+          return (
+            <span
+              className={cn("text-sm font-medium", getEligibilityClassName(eligibility))}
+            >
+              {unitJobOrderEligibilityLabel(
+                eligibility,
+                row.original.job_orders?.job_order_number,
+                row.original.job_orders?.status
+              )}
+            </span>
+          );
+        },
+      },
+      {
         id: "actions",
         header: "",
         cell: ({ row }) => (
@@ -206,7 +240,7 @@ export function UnitsReceivedTable() {
     <div className="space-y-6">
       <PageHeader
         title="Units Received"
-        description="Track vehicles received for service by category."
+        description="Log each shop visit. Only open, current unit logs can be used for new job orders."
       >
         <Button
           onClick={() => {
