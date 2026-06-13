@@ -18,7 +18,11 @@ export const metadata: Metadata = {
   },
   description: APP_DESCRIPTION,
   icons: {
-    icon: "/favicon.png",
+    icon: [
+      { url: "/favicon.png", type: "image/png" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico",
     apple: "/favicon.png",
   },
 };
