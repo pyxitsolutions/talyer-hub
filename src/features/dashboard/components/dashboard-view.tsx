@@ -24,7 +24,13 @@ interface DashboardViewProps {
 export function DashboardView({ userName }: DashboardViewProps) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: DASHBOARD_QUERY_KEY,
-    queryFn: getDashboardData,
+    queryFn: async () => {
+      const result = await getDashboardData();
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      return result.data;
+    },
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,

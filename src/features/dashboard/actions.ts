@@ -30,6 +30,10 @@ export interface DashboardData {
   topSellingParts: TopPartDataPoint[];
 }
 
+export type DashboardActionResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string };
+
 function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
 }
@@ -345,29 +349,41 @@ export async function getTopSellingParts(): Promise<TopPartDataPoint[]> {
     .slice(0, 10);
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
-  const [
-    stats,
-    revenueTrend,
-    expenseTrend,
-    profitTrend,
-    repairCategories,
-    topSellingParts,
-  ] = await Promise.all([
-    getDashboardStats(),
-    getRevenueTrend(),
-    getExpenseTrend(),
-    getProfitTrend(),
-    getRepairCategories(),
-    getTopSellingParts(),
-  ]);
+export async function getDashboardData(): Promise<
+  DashboardActionResult<DashboardData>
+> {
+  try {
+    const [
+      stats,
+      revenueTrend,
+      expenseTrend,
+      profitTrend,
+      repairCategories,
+      topSellingParts,
+    ] = await Promise.all([
+      getDashboardStats(),
+      getRevenueTrend(),
+      getExpenseTrend(),
+      getProfitTrend(),
+      getRepairCategories(),
+      getTopSellingParts(),
+    ]);
 
-  return {
-    stats,
-    revenueTrend,
-    expenseTrend,
-    profitTrend,
-    repairCategories,
-    topSellingParts,
-  };
+    return {
+      success: true,
+      data: {
+        stats,
+        revenueTrend,
+        expenseTrend,
+        profitTrend,
+        repairCategories,
+        topSellingParts,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to load dashboard",
+    };
+  }
 }

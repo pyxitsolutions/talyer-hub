@@ -28,7 +28,7 @@ async function fetchShopData(): Promise<ShopData> {
     .single();
 
   if (profileError || !profile) {
-    throw new Error(profileError?.message ?? "Profile not found");
+    return { shopId: null, shop: null, profile: null };
   }
 
   if (!profile.shop_id) {
@@ -41,8 +41,8 @@ async function fetchShopData(): Promise<ShopData> {
     .eq("id", profile.shop_id)
     .single();
 
-  if (shopError) {
-    throw new Error(shopError.message);
+  if (shopError || !shop) {
+    return { shopId: null, shop: null, profile };
   }
 
   return { shopId: profile.shop_id, shop, profile };

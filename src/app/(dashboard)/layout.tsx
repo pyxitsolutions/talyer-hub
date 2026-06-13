@@ -24,7 +24,7 @@ export default async function DashboardLayout({
     .from("profiles")
     .select("*")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   const profile = profileData as Profile | null;
   let shopName: string | undefined;
@@ -34,7 +34,7 @@ export default async function DashboardLayout({
       .from("shops")
       .select("shop_name")
       .eq("id", profile.shop_id)
-      .single();
+      .maybeSingle();
 
     const shop = shopData as Pick<Shop, "shop_name"> | null;
     shopName = shop?.shop_name;
