@@ -8,6 +8,7 @@ import QRCode from "qrcode";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/shared/page-header";
+import { ShopLogo } from "@/components/shared/shop-logo";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -140,12 +141,19 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
 
       <div ref={printRef} className="space-y-6">
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between">
-            <div>
-              <CardTitle className="text-2xl">Billing Invoice</CardTitle>
-              <CardDescription>
-                {shop?.shop_name ?? APP_NAME}
-              </CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <ShopLogo
+                logoUrl={shop?.logo_url}
+                alt={shop?.shop_name ?? APP_NAME}
+                size="lg"
+              />
+              <div>
+                <CardTitle className="text-2xl">Billing Invoice</CardTitle>
+                <CardDescription>
+                  {shop?.shop_name ?? APP_NAME}
+                </CardDescription>
+              </div>
             </div>
             {qrDataUrl && (
               <div className="text-center">

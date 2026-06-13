@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { AlertCircle, BadgeCheck, Building2, Car, User } from "lucide-react";
+import { AlertCircle, BadgeCheck, Car, User } from "lucide-react";
 
 import { StatusBadge } from "@/components/shared/status-badge";
+import { ShopLogo } from "@/components/shared/shop-logo";
 import {
   Card,
   CardContent,
@@ -88,7 +89,11 @@ export default async function VerifyInvoicePage({ params }: VerifyPageProps) {
       <CardContent className="space-y-6">
         <div className="rounded-lg border bg-muted/40 p-4">
           <div className="flex items-start gap-3">
-            <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+            <ShopLogo
+              logoUrl={invoice.shop.logo_url}
+              alt={invoice.shop.shop_name}
+              size="md"
+            />
             <div>
               <p className="font-semibold">{invoice.shop.shop_name}</p>
               {invoice.shop.address && (

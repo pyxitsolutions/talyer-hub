@@ -19,6 +19,7 @@ export interface PublicInvoiceVerification {
     address: string | null;
     contact_number: string | null;
     email: string | null;
+    logo_url: string | null;
   };
   customer_name: string;
   vehicle: {
@@ -58,7 +59,7 @@ export async function getPublicInvoiceVerification(
       repair_description,
       customers(full_name),
       vehicles(plate_number, brand, model),
-      shops(shop_name, address, contact_number, email)
+      shops(shop_name, address, contact_number, email, logo_url)
     `
     )
     .eq("verification_code", code)
@@ -82,12 +83,14 @@ export async function getPublicInvoiceVerification(
         address: string | null;
         contact_number: string | null;
         email: string | null;
+        logo_url: string | null;
       }
     | {
         shop_name: string;
         address: string | null;
         contact_number: string | null;
         email: string | null;
+        logo_url: string | null;
       }[]
     | null;
 

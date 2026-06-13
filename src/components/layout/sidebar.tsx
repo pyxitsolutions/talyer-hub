@@ -1,11 +1,13 @@
 "use client";
 
-import { ChevronLeft, Wrench } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { ShopLogo } from "@/components/shared/shop-logo";
 import { APP_NAME, NAV_ITEMS } from "@/lib/constants";
+import { useShop } from "@/lib/hooks/use-shop";
 import { getNavIcon } from "@/lib/nav-icons";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +18,8 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const { shop } = useShop();
+  const brandName = shop?.shop_name ?? APP_NAME;
 
   return (
     <aside
@@ -26,12 +30,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       <div className="flex h-14 items-center justify-between px-3">
         <Link href="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Wrench className="h-4 w-4" />
-          </div>
+          <ShopLogo
+            logoUrl={shop?.logo_url}
+            alt={brandName}
+            size="sm"
+          />
           {!collapsed && (
             <span className="truncate text-sm font-semibold text-sidebar-foreground">
-              {APP_NAME}
+              {brandName}
             </span>
           )}
         </Link>

@@ -20,6 +20,7 @@ import {
   type PasswordFormValues,
   type ShopFormValues,
 } from "../actions";
+import { ShopLogoUpload } from "./shop-logo-upload";
 
 const shopFormSchema = z.object({
   shop_name: z.string().min(1, "Shop name is required").max(200),
@@ -108,6 +109,10 @@ export function SettingsForm() {
         title="Settings"
         description="Manage your shop information and account security."
       />
+
+      {shop && (
+        <ShopLogoUpload shopName={shop.shop_name} logoUrl={shop.logo_url} />
+      )}
 
       <Card>
         <CardHeader>

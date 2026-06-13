@@ -12,17 +12,54 @@ interface PDFHeaderOptions {
   verificationCode?: string;
 }
 
+async function loadImageAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function addHeader(doc: jsPDF, options: PDFHeaderOptions) {
   const { shop, title, documentNumber, date, verificationCode } = options;
 
+  let textX = 14;
+  let headerTop = 20;
+
+  if (shop.logo_url) {
+    const logoDataUrl = await loadImageAsDataUrl(shop.logo_url);
+    if (logoDataUrl) {
+      const imageFormat = logoDataUrl.includes("image/jpeg")
+        ? "JPEG"
+        : logoDataUrl.includes("image/webp")
+          ? "WEBP"
+          : "PNG";
+      doc.addImage(logoDataUrl, imageFormat, 14, 10, 18, 18);
+      textX = 36;
+      headerTop = 18;
+    }
+  }
+
   doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
-  doc.text(shop.shop_name, 14, 20);
+  doc.text(shop.shop_name, textX, headerTop);
 
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text(shop.address || "", 14, 26);
-  doc.text(`Tel: ${shop.contact_number || "N/A"} | Email: ${shop.email || "N/A"}`, 14, 31);
+  doc.text(shop.address || "", textX, headerTop + 6);
+  doc.text(
+    `Tel: ${shop.contact_number || "N/A"} | Email: ${shop.email || "N/A"}`,
+    textX,
+    headerTop + 11
+  );
 
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
