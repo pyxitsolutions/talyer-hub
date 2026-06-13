@@ -25,7 +25,7 @@ async function fetchShopData(): Promise<ShopData> {
     .from("profiles")
     .select("*")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   if (profileError || !profile) {
     return { shopId: null, shop: null, profile: null };
@@ -39,7 +39,7 @@ async function fetchShopData(): Promise<ShopData> {
     .from("shops")
     .select("*")
     .eq("id", profile.shop_id)
-    .single();
+    .maybeSingle();
 
   if (shopError || !shop) {
     return { shopId: null, shop: null, profile };

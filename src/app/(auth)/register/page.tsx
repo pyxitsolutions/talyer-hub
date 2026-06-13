@@ -99,8 +99,7 @@ export default function RegisterPage() {
 
     if (authData.session) {
       toast.success("Shop account created successfully!");
-      router.push("/dashboard");
-      router.refresh();
+      router.replace("/dashboard");
       return;
     }
 

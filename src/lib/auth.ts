@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
-export async function getShopId(): Promise<string> {
+export async function resolveShopId(): Promise<string | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -8,18 +8,26 @@ export async function getShopId(): Promise<string> {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    throw new Error("Unauthorized");
+    return null;
   }
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("shop_id")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   if (profileError || !profile?.shop_id) {
-    throw new Error("Shop not found");
+    return null;
   }
 
   return profile.shop_id;
+}
+
+export async function getShopId(): Promise<string> {
+  const shopId = await resolveShopId();
+  if (!shopId) {
+    throw new Error("Shop not found");
+  }
+  return shopId;
 }

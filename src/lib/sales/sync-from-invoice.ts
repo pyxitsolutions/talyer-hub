@@ -66,7 +66,9 @@ export async function syncSalesFromInvoice(
 
   if (records.length > 0) {
     const { error } = await supabase.from("sales_records").insert(records);
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error("Failed to sync sales from invoice:", error.message);
+    }
   }
 }
 
@@ -82,7 +84,10 @@ export async function syncAllPaidInvoicesToSales(
     .eq("shop_id", shopId)
     .gt("amount_paid", 0);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Failed to load invoices for sales sync:", error.message);
+    return;
+  }
 
   for (const invoice of invoices ?? []) {
     await syncSalesFromInvoice(supabase, shopId, invoice as InvoiceForSalesSync);

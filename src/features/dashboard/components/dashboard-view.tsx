@@ -7,6 +7,7 @@ import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/constants";
+import { useShop } from "@/lib/hooks/use-shop";
 import { getDashboardData } from "@/features/dashboard/actions";
 import { CategoryChart } from "./category-chart";
 import { ExpenseChart } from "./expense-chart";
@@ -17,11 +18,10 @@ import { TopPartsChart } from "./top-parts-chart";
 
 export const DASHBOARD_QUERY_KEY = ["dashboard"] as const;
 
-interface DashboardViewProps {
-  userName?: string | null;
-}
+export function DashboardView() {
+  const { profile, shopId, loading: shopLoading } = useShop();
+  const userName = profile?.full_name ?? null;
 
-export function DashboardView({ userName }: DashboardViewProps) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: DASHBOARD_QUERY_KEY,
     queryFn: async () => {
@@ -31,6 +31,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
       }
       return result.data;
     },
+    enabled: !!shopId,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
@@ -55,7 +56,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
         </Button>
       </PageHeader>
 
-      {isLoading ? (
+      {shopLoading || isLoading ? (
         <div className="flex min-h-[240px] items-center justify-center">
           <LoadingSpinner />
         </div>
