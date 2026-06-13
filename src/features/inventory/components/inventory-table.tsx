@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatQuantity } from "@/lib/utils";
 import type { InventoryItem } from "@/types/database";
 import {
   adjustStock,
@@ -177,7 +177,7 @@ export function InventoryTable() {
         header: "Qty",
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
-            <span>{row.original.quantity}</span>
+            <span>{formatQuantity(row.original.quantity)}</span>
             {isLowStock(row.original) && (
               <Badge variant="outline" className="border-transparent bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
                 Low Stock

@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatQuantity } from "@/lib/utils";
 import { getHistory } from "../actions";
 
 interface InventoryHistoryProps {
@@ -99,7 +99,7 @@ export function InventoryHistory({ inventoryItemId }: InventoryHistoryProps) {
                       {typeLabels[tx.transaction_type]}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">{tx.quantity}</TableCell>
+                  <TableCell className="text-right">{formatQuantity(tx.quantity)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {tx.reference_type ?? "—"}
                   </TableCell>

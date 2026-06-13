@@ -46,7 +46,7 @@ export function Header({ profile, shopName }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="dashboard-print-hide sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <MobileNav />
 
       <div className="flex flex-1 items-center gap-4">

@@ -24,7 +24,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "hidden h-full flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 md:flex",
+        "dashboard-print-hide hidden h-full flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 md:flex",
         collapsed ? "w-[68px]" : "w-64"
       )}
     >

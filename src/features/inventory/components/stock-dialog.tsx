@@ -95,7 +95,8 @@ export function StockDialog({
               <Input
                 id="new_quantity"
                 type="number"
-                step="0.01"
+                step="1"
+                min="0"
                 {...adjustmentForm.register("new_quantity")}
               />
               {adjustmentForm.formState.errors.new_quantity && (
@@ -127,7 +128,8 @@ export function StockDialog({
               <Input
                 id="quantity"
                 type="number"
-                step="0.01"
+                step="1"
+                min="1"
                 {...transactionForm.register("quantity")}
               />
               {transactionForm.formState.errors.quantity && (

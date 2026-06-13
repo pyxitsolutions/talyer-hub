@@ -39,7 +39,7 @@ import { APP_NAME, PAYMENT_METHODS } from "@/lib/constants";
 import { downloadPDF, generateInvoicePDF } from "@/lib/pdf/generator";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { useShop } from "@/lib/hooks/use-shop";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatQuantity } from "@/lib/utils";
 import type { PaymentMethod } from "@/types/database";
 import { getInvoice, updatePayment } from "../actions";
 
@@ -223,7 +223,7 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
                   {invoice.invoice_items.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell>{item.part_name}</TableCell>
-                      <TableCell className="text-right">{item.quantity}</TableCell>
+                      <TableCell className="text-right">{formatQuantity(item.quantity)}</TableCell>
                       <TableCell className="text-right">
                         {formatCurrency(item.unit_price)}
                       </TableCell>

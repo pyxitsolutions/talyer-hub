@@ -131,7 +131,7 @@ export async function generateEstimatePDF(
       head: [["Part Name", "Qty", "Unit Price", "Total"]],
       body: estimate.repair_estimate_items.map((item) => [
         item.part_name,
-        item.quantity.toString(),
+        Math.round(item.quantity).toString(),
         formatCurrencyForPDF(item.unit_price),
         formatCurrencyForPDF(item.total_price),
       ]),
@@ -182,7 +182,7 @@ export async function generateInvoicePDF(
       head: [["Part/Service", "Qty", "Unit Price", "Total"]],
       body: invoice.invoice_items.map((item) => [
         item.part_name,
-        item.quantity.toString(),
+        Math.round(item.quantity).toString(),
         formatCurrencyForPDF(item.unit_price),
         formatCurrencyForPDF(item.total_price),
       ]),

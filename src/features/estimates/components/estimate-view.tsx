@@ -15,6 +15,13 @@ import {
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/shared/page-header";
+import {
+  PrintDocumentLayout,
+  PrintField,
+  PrintLineItemsTable,
+  PrintSection,
+  PrintTotals,
+} from "@/components/shared/print-document-layout";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,7 +54,7 @@ import {
   downloadPDF,
   generateEstimatePDF,
 } from "@/lib/pdf/generator";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatQuantity } from "@/lib/utils";
 import {
   approveEstimate,
   getEstimate,
@@ -151,8 +158,9 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
   }
 
   return (
-    <div className="space-y-6 print:space-y-4">
-      <div className="flex items-center gap-4 print:hidden">
+    <>
+      <div className="space-y-6 print:hidden">
+      <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/dashboard/estimates">
             <ArrowLeft className="h-4 w-4" />
@@ -210,7 +218,7 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
       </div>
 
       {estimate.status === "approved" && (
-        <Card className="print:hidden">
+        <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Create Job Order</CardTitle>
             <CardDescription>
@@ -251,11 +259,6 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
           </CardContent>
         </Card>
       )}
-
-      <div className="hidden print:block">
-        <h1 className="text-2xl font-bold">{estimate.estimate_number}</h1>
-        <p className="text-muted-foreground">Repair Estimate</p>
-      </div>
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
@@ -365,7 +368,7 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
                 {estimate.repair_estimate_items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>{item.part_name}</TableCell>
-                    <TableCell className="text-right">{item.quantity}</TableCell>
+                    <TableCell className="text-right">{formatQuantity(item.quantity)}</TableCell>
                     <TableCell className="text-right">
                       {formatCurrency(item.unit_price)}
                     </TableCell>
@@ -386,6 +389,90 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
           </div>
         </CardContent>
       </Card>
-    </div>
+      </div>
+
+      <PrintDocumentLayout
+        shop={shop}
+        title="Repair Estimate"
+        documentNumber={estimate.estimate_number}
+        date={estimate.estimate_date}
+      >
+        <div className="grid grid-cols-2 gap-6">
+          <PrintField
+            label="Customer"
+            value={
+              <>
+                <span className="font-medium">{estimate.customers?.full_name}</span>
+                <br />
+                {estimate.customers?.contact_number ?? "—"}
+                <br />
+                {estimate.customers?.email ?? "—"}
+              </>
+            }
+          />
+          <PrintField
+            label="Vehicle"
+            value={
+              <>
+                {estimate.vehicles?.brand} {estimate.vehicles?.model}
+                <br />
+                Plate: {estimate.vehicles?.plate_number}
+                <br />
+                Chassis: {estimate.chassis_number ?? "—"}
+                <br />
+                Engine: {estimate.engine_number ?? "—"}
+              </>
+            }
+          />
+        </div>
+
+        {estimate.technician_name && (
+          <PrintField label="Technician" value={estimate.technician_name} />
+        )}
+
+        <PrintSection title="Problem">
+          <p>{estimate.problem_description || "—"}</p>
+        </PrintSection>
+
+        <PrintSection title="Repair Description">
+          <p>{estimate.repair_description || "—"}</p>
+        </PrintSection>
+
+        {estimate.recommendation && (
+          <PrintSection title="Recommendation">
+            <p>{estimate.recommendation}</p>
+          </PrintSection>
+        )}
+
+        <PrintSection title="Line Items">
+          <PrintLineItemsTable
+            columns={[
+              { key: "part", label: "Part Name" },
+              { key: "qty", label: "Qty", align: "right" },
+              { key: "unitPrice", label: "Unit Price", align: "right" },
+              { key: "total", label: "Total", align: "right" },
+            ]}
+            rows={(estimate.repair_estimate_items ?? []).map((item) => ({
+              part: item.part_name,
+              qty: formatQuantity(item.quantity),
+              unitPrice: formatCurrency(item.unit_price),
+              total: formatCurrency(item.total_price),
+            }))}
+          />
+        </PrintSection>
+
+        <PrintTotals
+          items={[
+            { label: "Labor", value: formatCurrency(estimate.labor_cost) },
+            { label: "Parts", value: formatCurrency(estimate.parts_cost) },
+            {
+              label: "Total",
+              value: formatCurrency(estimate.total_cost),
+              emphasis: true,
+            },
+          ]}
+        />
+      </PrintDocumentLayout>
+    </>
   );
 }

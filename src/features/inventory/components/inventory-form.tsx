@@ -76,7 +76,8 @@ export function InventoryForm({
           <Input
             id="quantity"
             type="number"
-            step="0.01"
+            step="1"
+            min="0"
             disabled={!!item}
             {...register("quantity")}
           />
@@ -88,7 +89,7 @@ export function InventoryForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="reorder_level">Reorder Level</Label>
-          <Input id="reorder_level" type="number" step="0.01" {...register("reorder_level")} />
+          <Input id="reorder_level" type="number" step="1" min="0" {...register("reorder_level")} />
         </div>
       </div>
 

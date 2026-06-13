@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/table";
 import { useShop } from "@/lib/hooks/use-shop";
 import { downloadPDF, generateJobOrderPDF } from "@/lib/pdf/generator";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatQuantity } from "@/lib/utils";
 import { getJobOrder, getJobOrderReleaseEligibility } from "../actions";
 
 interface JobOrderViewProps {
@@ -248,7 +248,7 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
                     <TableRow key={part.id}>
                       <TableCell>{part.part_name}</TableCell>
                       <TableCell className="text-right">
-                        {part.quantity}
+                        {formatQuantity(part.quantity)}
                       </TableCell>
                       <TableCell className="text-right">
                         {formatCurrency(part.unit_price)}

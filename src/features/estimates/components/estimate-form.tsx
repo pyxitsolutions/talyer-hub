@@ -77,7 +77,7 @@ export function EstimateForm({
       items:
         estimate?.repair_estimate_items?.map((item) => ({
           part_name: item.part_name,
-          quantity: Number(item.quantity),
+          quantity: Math.round(Number(item.quantity)),
           unit_price: Number(item.unit_price),
           inventory_item_id: item.inventory_item_id ?? "",
         })) ?? [],
@@ -306,7 +306,8 @@ export function EstimateForm({
                   <Label className="text-xs">Qty *</Label>
                   <Input
                     type="number"
-                    step="0.01"
+                    step="1"
+                    min="1"
                     {...register(`items.${index}.quantity`)}
                   />
                 </div>

@@ -84,7 +84,7 @@ export function JobOrderForm({
       parts:
         jobOrder?.job_order_parts?.map((part) => ({
           part_name: part.part_name,
-          quantity: Number(part.quantity),
+          quantity: Math.round(Number(part.quantity)),
           unit_price: Number(part.unit_price),
           inventory_item_id: part.inventory_item_id ?? "",
         })) ?? [],
@@ -390,7 +390,8 @@ export function JobOrderForm({
                   <Label className="text-xs">Qty *</Label>
                   <Input
                     type="number"
-                    step="0.01"
+                    step="1"
+                    min="1"
                     {...register(`parts.${index}.quantity`)}
                   />
                 </div>

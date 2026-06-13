@@ -40,6 +40,12 @@ export function formatDate(date: string | Date): string {
   }).format(new Date(date));
 }
 
+export function formatQuantity(quantity: number): string {
+  return Math.round(quantity).toLocaleString(CURRENCY_LOCALE, {
+    maximumFractionDigits: 0,
+  });
+}
+
 export function generateNumber(prefix: string, count: number): string {
   return `${prefix}-${String(count + 1).padStart(5, "0")}`;
 }

@@ -16,7 +16,7 @@ export function ShopSetupBanner({ profile }: ShopSetupBannerProps) {
   }
 
   return (
-    <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+    <div className="dashboard-print-hide mb-6 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
       <div className="flex gap-3">
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
         <div className="space-y-3">

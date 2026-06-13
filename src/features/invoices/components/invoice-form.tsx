@@ -78,7 +78,7 @@ export function InvoiceForm({
         invoice?.invoice_items?.map((item) => ({
           inventory_item_id: item.inventory_item_id ?? "",
           part_name: item.part_name,
-          quantity: item.quantity,
+          quantity: Math.round(Number(item.quantity)),
           unit_price: item.unit_price,
         })) ?? [],
     },
@@ -325,7 +325,8 @@ export function InvoiceForm({
               <Label className="text-xs">Qty</Label>
               <Input
                 type="number"
-                step="0.01"
+                step="1"
+                min="1"
                 {...register(`items.${index}.quantity`)}
               />
             </div>
