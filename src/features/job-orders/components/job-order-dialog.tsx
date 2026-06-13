@@ -93,7 +93,7 @@ export function JobOrderDialog({
           <DialogDescription>
             {jobOrder
               ? "Update job order details and parts used."
-              : "Create a job order to track repair work."}
+              : "Create a job order after the unit has been logged in Units Received."}
           </DialogDescription>
         </DialogHeader>
         <JobOrderForm

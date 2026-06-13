@@ -48,6 +48,79 @@ async function getLinkedInvoice(
     .maybeSingle();
 }
 
+async function assertUnitReceivedForJobOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  unitReceivedId: string,
+  customerId: string,
+  vehicleId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: unit, error } = await supabase
+    .from("units_received")
+    .select("id, customer_id, vehicle_id, job_order_id")
+    .eq("id", unitReceivedId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (error || !unit) {
+    return { ok: false, error: "Unit received record not found" };
+  }
+
+  if (unit.job_order_id) {
+    return {
+      ok: false,
+      error: "This unit log is already linked to a job order.",
+    };
+  }
+
+  if (!unit.vehicle_id) {
+    return {
+      ok: false,
+      error:
+        "Unit log must include a vehicle before creating a job order. Update the unit log in Units Received.",
+    };
+  }
+
+  if (unit.vehicle_id !== vehicleId) {
+    return {
+      ok: false,
+      error: "Selected unit log does not match the job order vehicle.",
+    };
+  }
+
+  if (unit.customer_id && unit.customer_id !== customerId) {
+    return {
+      ok: false,
+      error: "Selected unit log does not match the job order customer.",
+    };
+  }
+
+  return { ok: true };
+}
+
+async function linkUnitReceivedToJobOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  unitReceivedId: string,
+  jobOrderId: string,
+  customerId: string,
+  vehicleId: string
+) {
+  const { error } = await supabase
+    .from("units_received")
+    .update({
+      job_order_id: jobOrderId,
+      customer_id: customerId,
+      vehicle_id: vehicleId,
+    })
+    .eq("id", unitReceivedId)
+    .eq("shop_id", shopId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 async function assertCanDeleteJobOrder(
   supabase: Awaited<ReturnType<typeof createClient>>,
   shopId: string,
@@ -430,6 +503,48 @@ export async function getVehiclesByCustomer(
   }
 }
 
+export interface UnitReceivedForJobOrderOption {
+  id: string;
+  received_date: string;
+  category: string;
+  notes: string | null;
+}
+
+export async function getAvailableUnitsForJobOrder(
+  vehicleId: string
+): Promise<ActionResult<UnitReceivedForJobOrderOption[]>> {
+  try {
+    if (!vehicleId) {
+      return { success: true, data: [] };
+    }
+
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("units_received")
+      .select("id, received_date, category, notes")
+      .eq("shop_id", shopId)
+      .eq("vehicle_id", vehicleId)
+      .is("job_order_id", null)
+      .order("received_date", { ascending: false });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data: data ?? [] };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Failed to fetch available unit logs",
+    };
+  }
+}
+
 export async function getInventoryForSelect() {
   try {
     const shopId = await getShopId();
@@ -472,6 +587,26 @@ export async function createJobOrder(
         error:
           "Cannot release on create. Complete the job, generate invoice, and record payment first.",
       };
+    }
+
+    if (!parsed.data.unit_received_id) {
+      return {
+        success: false,
+        error:
+          "Log the unit in Units Received before creating a job order.",
+      };
+    }
+
+    const unitCheck = await assertUnitReceivedForJobOrder(
+      supabase,
+      shopId,
+      parsed.data.unit_received_id,
+      parsed.data.customer_id,
+      parsed.data.vehicle_id
+    );
+
+    if (!unitCheck.ok) {
+      return { success: false, error: unitCheck.error };
     }
 
     const { count, error: countError } = await supabase
@@ -519,7 +654,17 @@ export async function createJobOrder(
       );
     }
 
+    await linkUnitReceivedToJobOrder(
+      supabase,
+      shopId,
+      parsed.data.unit_received_id,
+      data.id,
+      parsed.data.customer_id,
+      parsed.data.vehicle_id
+    );
+
     revalidatePath("/dashboard/job-orders");
+    revalidatePath("/dashboard/units-received");
     revalidatePath("/dashboard/inventory");
     revalidatePath("/dashboard");
     return { success: true, data };
@@ -694,9 +839,18 @@ export async function deleteJobOrder(id: string): Promise<ActionResult> {
 }
 
 export async function convertFromEstimate(
-  estimateId: string
+  estimateId: string,
+  unitReceivedId: string
 ): Promise<ActionResult<JobOrder>> {
   try {
+    if (!unitReceivedId) {
+      return {
+        success: false,
+        error:
+          "Log the unit in Units Received before creating a job order.",
+      };
+    }
+
     const shopId = await getShopId();
     const supabase = await createClient();
 
@@ -730,6 +884,18 @@ export async function convertFromEstimate(
         success: false,
         error: "A job order already exists for this estimate",
       };
+    }
+
+    const unitCheck = await assertUnitReceivedForJobOrder(
+      supabase,
+      shopId,
+      unitReceivedId,
+      estimate.customer_id,
+      estimate.vehicle_id
+    );
+
+    if (!unitCheck.ok) {
+      return { success: false, error: unitCheck.error };
     }
 
     const { count, error: countError } = await supabase
@@ -794,7 +960,17 @@ export async function convertFromEstimate(
       );
     }
 
+    await linkUnitReceivedToJobOrder(
+      supabase,
+      shopId,
+      unitReceivedId,
+      data.id,
+      estimate.customer_id,
+      estimate.vehicle_id
+    );
+
     revalidatePath("/dashboard/job-orders");
+    revalidatePath("/dashboard/units-received");
     revalidatePath("/dashboard/estimates");
     revalidatePath(`/dashboard/estimates/${estimateId}`);
     revalidatePath("/dashboard/inventory");

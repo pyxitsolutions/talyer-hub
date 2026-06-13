@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -23,6 +24,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -31,8 +40,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { convertFromEstimate } from "@/features/job-orders/actions";
+import { convertFromEstimate, getAvailableUnitsForJobOrder } from "@/features/job-orders/actions";
 import { useShop } from "@/lib/hooks/use-shop";
+import { UNIT_CATEGORIES } from "@/lib/constants";
 import {
   downloadPDF,
   generateEstimatePDF,
@@ -52,6 +62,7 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { shop } = useShop();
+  const [selectedUnitId, setSelectedUnitId] = useState("");
 
   const { data: estimate, isLoading } = useQuery({
     queryKey: ["estimate", estimateId],
@@ -60,6 +71,17 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+  });
+
+  const { data: availableUnits = [] } = useQuery({
+    queryKey: ["units-for-job-order", estimate?.vehicle_id],
+    queryFn: async () => {
+      if (!estimate?.vehicle_id) return [];
+      const result = await getAvailableUnitsForJobOrder(estimate.vehicle_id);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!estimate?.vehicle_id && estimate.status === "approved",
   });
 
   const approveMutation = useMutation({
@@ -90,7 +112,7 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
 
   const convertMutation = useMutation({
     mutationFn: async () => {
-      const result = await convertFromEstimate(estimateId);
+      const result = await convertFromEstimate(estimateId, selectedUnitId);
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
@@ -116,6 +138,9 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
   const handlePrint = () => {
     window.print();
   };
+
+  const getUnitCategoryLabel = (category: string) =>
+    UNIT_CATEGORIES.find((item) => item.value === category)?.label ?? category;
 
   if (isLoading) {
     return <p className="text-muted-foreground">Loading estimate...</p>;
@@ -170,7 +195,11 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
             {estimate.status === "approved" && (
               <Button
                 onClick={() => convertMutation.mutate()}
-                disabled={convertMutation.isPending}
+                disabled={
+                  convertMutation.isPending ||
+                  !selectedUnitId ||
+                  availableUnits.length === 0
+                }
               >
                 <Wrench className="mr-2 h-4 w-4" />
                 Convert to Job Order
@@ -179,6 +208,49 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
           </div>
         </PageHeader>
       </div>
+
+      {estimate.status === "approved" && (
+        <Card className="print:hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Create Job Order</CardTitle>
+            <CardDescription>
+              Log the unit in Units Received first, then select it here before
+              converting this estimate.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <Label>Unit Received *</Label>
+              <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+                <SelectTrigger className="max-w-xl">
+                  <SelectValue placeholder="Select a logged unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableUnits.map((unit) => (
+                    <SelectItem key={unit.id} value={unit.id}>
+                      {formatDate(unit.received_date)} —{" "}
+                      {getUnitCategoryLabel(unit.category)}
+                      {unit.notes ? ` (${unit.notes})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {availableUnits.length === 0 && (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                No unit log found for this vehicle.{" "}
+                <Link
+                  href="/dashboard/units-received"
+                  className="font-medium underline underline-offset-4"
+                >
+                  Log unit in Units Received
+                </Link>{" "}
+                before creating a job order.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="hidden print:block">
         <h1 className="text-2xl font-bold">{estimate.estimate_number}</h1>

@@ -14,6 +14,7 @@ export const jobOrderPartSchema = z.object({
 export const jobOrderFormSchema = z.object({
   customer_id: z.string().uuid("Please select a customer"),
   vehicle_id: z.string().uuid("Please select a vehicle"),
+  unit_received_id: z.string().uuid().optional().or(z.literal("")),
   estimate_id: z.string().uuid().optional().or(z.literal("")),
   assigned_technician: z.string().max(200).optional().or(z.literal("")),
   date_started: z.string().optional().or(z.literal("")),

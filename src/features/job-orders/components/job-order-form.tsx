@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 
@@ -16,9 +18,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { JOB_ORDER_STATUSES } from "@/lib/constants";
-import { formatCurrency } from "@/lib/utils";
+import { JOB_ORDER_STATUSES, UNIT_CATEGORIES } from "@/lib/constants";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Customer, InventoryItem, JobOrder, Vehicle } from "@/types/database";
+import { getAvailableUnitsForJobOrder } from "../actions";
 import {
   jobOrderFormSchema,
   type JobOrderFormValues,
@@ -71,6 +74,7 @@ export function JobOrderForm({
     defaultValues: {
       customer_id: jobOrder?.customer_id ?? "",
       vehicle_id: jobOrder?.vehicle_id ?? "",
+      unit_received_id: "",
       estimate_id: jobOrder?.estimate_id ?? "",
       assigned_technician: jobOrder?.assigned_technician ?? "",
       date_started: jobOrder?.date_started ?? "",
@@ -93,13 +97,33 @@ export function JobOrderForm({
   });
 
   const customerId = useWatch({ control, name: "customer_id" });
+  const vehicleId = useWatch({ control, name: "vehicle_id" });
   const parts = useWatch({ control, name: "parts" });
+
+  const { data: availableUnits = [] } = useQuery({
+    queryKey: ["units-for-job-order", vehicleId],
+    queryFn: async () => {
+      const result = await getAvailableUnitsForJobOrder(vehicleId);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!vehicleId && !jobOrder,
+  });
 
   useEffect(() => {
     if (customerId) {
       onCustomerChange(customerId);
     }
   }, [customerId, onCustomerChange]);
+
+  useEffect(() => {
+    if (!jobOrder) {
+      setValue("unit_received_id", "");
+    }
+  }, [vehicleId, jobOrder, setValue]);
+
+  const getUnitCategoryLabel = (category: string) =>
+    UNIT_CATEGORIES.find((item) => item.value === category)?.label ?? category;
 
   const handleInventorySelect = (index: number, inventoryId: string) => {
     const item = inventory.find((i) => i.id === inventoryId);
@@ -130,6 +154,7 @@ export function JobOrderForm({
                 onValueChange={(value) => {
                   field.onChange(value);
                   setValue("vehicle_id", "");
+                  setValue("unit_received_id", "");
                 }}
               >
                 <SelectTrigger>
@@ -183,6 +208,65 @@ export function JobOrderForm({
           )}
         </div>
       </div>
+
+      {!jobOrder && (
+        <div className="space-y-2">
+          <Label>Unit Received *</Label>
+          <Controller
+            name="unit_received_id"
+            control={control}
+            render={({ field }) => (
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={!vehicleId}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      vehicleId
+                        ? "Select a logged unit"
+                        : "Select a vehicle first"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableUnits.map((unit) => (
+                    <SelectItem key={unit.id} value={unit.id}>
+                      {formatDate(unit.received_date)} —{" "}
+                      {getUnitCategoryLabel(unit.category)}
+                      {unit.notes ? ` (${unit.notes})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          {vehicleId && availableUnits.length === 0 && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              No unit log found for this vehicle.{" "}
+              <Link
+                href="/dashboard/units-received"
+                className="font-medium underline underline-offset-4"
+              >
+                Log unit in Units Received
+              </Link>{" "}
+              before creating a job order.
+            </p>
+          )}
+          {!vehicleId && (
+            <p className="text-sm text-muted-foreground">
+              The vehicle must be logged in Units Received before you can create
+              a job order.
+            </p>
+          )}
+          {errors.unit_received_id && (
+            <p className="text-sm text-destructive">
+              {errors.unit_received_id.message}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
