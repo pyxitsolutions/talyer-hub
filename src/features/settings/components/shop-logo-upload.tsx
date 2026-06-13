@@ -14,7 +14,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { removeShopLogo, uploadShopLogo } from "../actions";
+import { useShop } from "@/lib/hooks/use-shop";
+import { MAX_LOGO_SIZE } from "@/lib/supabase/logo-file";
+import {
+  removeShopLogoFromStorage,
+  uploadShopLogoToStorage,
+} from "@/lib/supabase/upload-shop-logo";
+import { clearShopLogoUrl, saveShopLogoUrl } from "../actions";
 
 interface ShopLogoUploadProps {
   shopName: string;
@@ -25,16 +31,27 @@ const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"
 
 export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
   const queryClient = useQueryClient();
+  const { shopId } = useShop();
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      const result = await uploadShopLogo(formData);
-      if (!result.success) throw new Error(result.error);
-      return result.data;
+      if (!shopId) {
+        throw new Error("Shop not found");
+      }
+
+      const uploadResult = await uploadShopLogoToStorage(shopId, file);
+      if (!uploadResult.success) {
+        throw new Error(uploadResult.error);
+      }
+
+      const saveResult = await saveShopLogoUrl(uploadResult.logoUrl);
+      if (!saveResult.success) {
+        throw new Error(saveResult.error);
+      }
+
+      return saveResult.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shop-settings"] });
@@ -47,8 +64,19 @@ export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
 
   const removeMutation = useMutation({
     mutationFn: async () => {
-      const result = await removeShopLogo();
-      if (!result.success) throw new Error(result.error);
+      if (!shopId) {
+        throw new Error("Shop not found");
+      }
+
+      const removeStorageResult = await removeShopLogoFromStorage(shopId);
+      if (!removeStorageResult.success) {
+        throw new Error(removeStorageResult.error);
+      }
+
+      const clearResult = await clearShopLogoUrl();
+      if (!clearResult.success) {
+        throw new Error(clearResult.error);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shop-settings"] });
@@ -63,13 +91,13 @@ export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!ACCEPTED_TYPES.includes(file.type)) {
+    if (!ACCEPTED_TYPES.includes(file.type) && !file.name.match(/\.(png|jpe?g|webp|svg)$/i)) {
       toast.error("Use PNG, JPG, WEBP, or SVG only.");
       event.target.value = "";
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > MAX_LOGO_SIZE) {
       toast.error("Logo must be 2MB or smaller.");
       event.target.value = "";
       return;
@@ -106,7 +134,7 @@ export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
           <Button
             type="button"
             variant="outline"
-            disabled={isBusy}
+            disabled={isBusy || !shopId}
             onClick={() => inputRef.current?.click()}
           >
             {uploadMutation.isPending ? (
@@ -121,7 +149,7 @@ export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
               type="button"
               variant="ghost"
               className="text-destructive hover:text-destructive"
-              disabled={isBusy}
+              disabled={isBusy || !shopId}
               onClick={() => removeMutation.mutate()}
             >
               <Trash2 className="mr-2 h-4 w-4" />

@@ -3,9 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { getShopId } from "@/lib/auth";
+import { resolveShopId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { getShopStorageClient, mapStorageError } from "@/lib/supabase/shop-storage";
 import type { Shop } from "@/types/database";
 
 export type ActionResult<T = void> =
@@ -34,145 +33,50 @@ const passwordFormSchema = z
 export type ShopFormValues = z.infer<typeof shopFormSchema>;
 export type PasswordFormValues = z.infer<typeof passwordFormSchema>;
 
-const ALLOWED_LOGO_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-  "image/svg+xml",
-]);
-
-const MAX_LOGO_SIZE = 2 * 1024 * 1024;
-
-function getLogoExtension(mimeType: string): string {
-  switch (mimeType) {
-    case "image/png":
-      return "png";
-    case "image/jpeg":
-      return "jpg";
-    case "image/webp":
-      return "webp";
-    case "image/svg+xml":
-      return "svg";
-    default:
-      return "png";
-  }
-}
-
-function normalizeLogoMimeType(file: File): string {
-  if (file.type && ALLOWED_LOGO_TYPES.has(file.type)) {
-    return file.type === "image/jpg" ? "image/jpeg" : file.type;
-  }
-
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  switch (extension) {
-    case "png":
-      return "image/png";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "webp":
-      return "image/webp";
-    case "svg":
-      return "image/svg+xml";
-    default:
-      return file.type;
-  }
-}
-
-export async function uploadShopLogo(
-  formData: FormData
+export async function saveShopLogoUrl(
+  logoUrl: string
 ): Promise<ActionResult<{ logo_url: string }>> {
   try {
-    const file = formData.get("file");
-
-    if (!(file instanceof File) || file.size === 0) {
-      return { success: false, error: "Please choose a logo file." };
+    const shopId = await resolveShopId();
+    if (!shopId) {
+      return { success: false, error: "Shop not found" };
     }
 
-    if (!ALLOWED_LOGO_TYPES.has(file.type) && !file.name.match(/\.(png|jpe?g|webp|svg)$/i)) {
-      return {
-        success: false,
-        error: "Invalid file type. Use PNG, JPG, WEBP, or SVG.",
-      };
+    if (!logoUrl.startsWith("http")) {
+      return { success: false, error: "Invalid logo URL" };
     }
 
-    if (file.size > MAX_LOGO_SIZE) {
-      return { success: false, error: "Logo must be 2MB or smaller." };
-    }
-
-    const shopId = await getShopId();
     const supabase = await createClient();
-    const storage = await getShopStorageClient();
-    const mimeType = normalizeLogoMimeType(file);
-    const extension = getLogoExtension(mimeType);
-    const path = `${shopId}/logo.${extension}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    const { error: uploadError } = await storage.storage
-      .from("shop-logos")
-      .upload(path, buffer, {
-        upsert: true,
-        contentType: mimeType,
-      });
-
-    if (uploadError) {
-      return { success: false, error: mapStorageError(uploadError.message) };
-    }
-
-    const {
-      data: { publicUrl },
-    } = storage.storage.from("shop-logos").getPublicUrl(path);
-
-    const logoUrl = `${publicUrl}?v=${Date.now()}`;
-
     const { data, error } = await supabase
       .from("shops")
       .update({ logo_url: logoUrl })
       .eq("id", shopId)
       .select("logo_url")
-      .single();
+      .maybeSingle();
 
-    if (error || !data) {
+    if (error || !data?.logo_url) {
       return { success: false, error: error?.message ?? "Failed to save logo" };
     }
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard");
-    return { success: true, data: { logo_url: data.logo_url! } };
+    return { success: true, data: { logo_url: data.logo_url } };
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Failed to upload logo",
+      error: err instanceof Error ? err.message : "Failed to save logo",
     };
   }
 }
 
-export async function removeShopLogo(): Promise<ActionResult> {
+export async function clearShopLogoUrl(): Promise<ActionResult> {
   try {
-    const shopId = await getShopId();
+    const shopId = await resolveShopId();
+    if (!shopId) {
+      return { success: false, error: "Shop not found" };
+    }
+
     const supabase = await createClient();
-    const storage = await getShopStorageClient();
-
-    const { data: files, error: listError } = await storage.storage
-      .from("shop-logos")
-      .list(shopId);
-
-    if (listError) {
-      return { success: false, error: mapStorageError(listError.message) };
-    }
-
-    if (files?.length) {
-      const paths = files.map((file) => `${shopId}/${file.name}`);
-      const { error: removeError } = await storage.storage
-        .from("shop-logos")
-        .remove(paths);
-
-      if (removeError) {
-        return { success: false, error: mapStorageError(removeError.message) };
-      }
-    }
-
     const { error } = await supabase
       .from("shops")
       .update({ logo_url: null })
@@ -195,14 +99,18 @@ export async function removeShopLogo(): Promise<ActionResult> {
 
 export async function getShopSettings(): Promise<ActionResult<Shop>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await resolveShopId();
+    if (!shopId) {
+      return { success: false, error: "Shop not found" };
+    }
+
     const supabase = await createClient();
 
     const { data, error } = await supabase
       .from("shops")
       .select("*")
       .eq("id", shopId)
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
       return { success: false, error: "Shop not found" };
@@ -226,7 +134,11 @@ export async function updateShopSettings(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await resolveShopId();
+    if (!shopId) {
+      return { success: false, error: "Shop not found" };
+    }
+
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -240,10 +152,10 @@ export async function updateShopSettings(
       })
       .eq("id", shopId)
       .select()
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      return { success: false, error: error.message };
+    if (error || !data) {
+      return { success: false, error: error?.message ?? "Failed to update shop settings" };
     }
 
     revalidatePath("/dashboard/settings");
