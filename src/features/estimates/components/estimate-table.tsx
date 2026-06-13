@@ -1,0 +1,314 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ColumnDef } from "@tanstack/react-table";
+import {
+  Check,
+  Eye,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { DataTable } from "@/components/shared/data-table";
+import { DeleteDialog } from "@/components/shared/delete-dialog";
+import { PageHeader } from "@/components/shared/page-header";
+import { SearchInput } from "@/components/shared/search-input";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import {
+  approveEstimate,
+  createEstimate,
+  deleteEstimate,
+  getCustomersForSelect,
+  getEstimates,
+  getInventoryForSelect,
+  rejectEstimate,
+  updateEstimate,
+  type EstimateWithRelations,
+} from "../actions";
+import type { EstimateFormValues } from "../schemas";
+import { EstimateDialog } from "./estimate-dialog";
+
+export function EstimateTable() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedEstimate, setSelectedEstimate] = useState<
+    EstimateWithRelations | undefined
+  >();
+
+  const { data: estimates = [], isLoading } = useQuery({
+    queryKey: ["estimates", search],
+    queryFn: async () => {
+      const result = await getEstimates(search);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+  });
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ["customers-select"],
+    queryFn: async () => {
+      const result = await getCustomersForSelect();
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+  });
+
+  const { data: inventory = [] } = useQuery({
+    queryKey: ["inventory-select"],
+    queryFn: async () => {
+      const result = await getInventoryForSelect();
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (values: EstimateFormValues) => {
+      const result = await createEstimate(values);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      toast.success("Estimate created successfully");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({
+      id,
+      values,
+    }: {
+      id: string;
+      values: EstimateFormValues;
+    }) => {
+      const result = await updateEstimate(id, values);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      toast.success("Estimate updated successfully");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const result = await deleteEstimate(id);
+      if (!result.success) throw new Error(result.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      setDeleteOpen(false);
+      setSelectedEstimate(undefined);
+      toast.success("Estimate deleted successfully");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const result = await approveEstimate(id);
+      if (!result.success) throw new Error(result.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      toast.success("Estimate approved");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const result = await rejectEstimate(id);
+      if (!result.success) throw new Error(result.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      toast.success("Estimate rejected");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const handleSubmit = async (values: EstimateFormValues) => {
+    if (selectedEstimate) {
+      await updateMutation.mutateAsync({ id: selectedEstimate.id, values });
+    } else {
+      await createMutation.mutateAsync(values);
+    }
+  };
+
+  const columns = useMemo<ColumnDef<EstimateWithRelations>[]>(
+    () => [
+      {
+        accessorKey: "estimate_number",
+        header: "Estimate #",
+        cell: ({ row }) => (
+          <Link
+            href={`/dashboard/estimates/${row.original.id}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {row.original.estimate_number}
+          </Link>
+        ),
+      },
+      {
+        id: "customer",
+        header: "Customer",
+        cell: ({ row }) => row.original.customers?.full_name ?? "—",
+      },
+      {
+        id: "vehicle",
+        header: "Vehicle",
+        cell: ({ row }) =>
+          row.original.vehicles
+            ? `${row.original.vehicles.plate_number} — ${row.original.vehicles.brand} ${row.original.vehicles.model}`
+            : "—",
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        accessorKey: "total_cost",
+        header: "Total",
+        cell: ({ row }) => formatCurrency(row.original.total_cost),
+      },
+      {
+        accessorKey: "estimate_date",
+        header: "Date",
+        cell: ({ row }) => formatDate(row.original.estimate_date),
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Open menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link href={`/dashboard/estimates/${row.original.id}`}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  View
+                </Link>
+              </DropdownMenuItem>
+              {row.original.status === "draft" && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setSelectedEstimate(row.original);
+                      setDialogOpen(true);
+                    }}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => approveMutation.mutate(row.original.id)}
+                  >
+                    <Check className="mr-2 h-4 w-4" />
+                    Approve
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => rejectMutation.mutate(row.original.id)}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Reject
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => {
+                      setSelectedEstimate(row.original);
+                      setDeleteOpen(true);
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      },
+    ],
+    [approveMutation, rejectMutation]
+  );
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Repair Estimates"
+        description="Create and manage repair cost estimates for customers."
+      >
+        <Button
+          onClick={() => {
+            setSelectedEstimate(undefined);
+            setDialogOpen(true);
+          }}
+          disabled={customers.length === 0}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          New Estimate
+        </Button>
+      </PageHeader>
+
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by estimate number or technician..."
+      />
+
+      <DataTable
+        columns={columns}
+        data={estimates}
+        emptyMessage={isLoading ? "Loading estimates..." : "No estimates found."}
+      />
+
+      <EstimateDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        estimate={selectedEstimate}
+        customers={customers}
+        inventory={inventory}
+        onSubmit={handleSubmit}
+        isLoading={createMutation.isPending || updateMutation.isPending}
+      />
+
+      <DeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete Estimate"
+        description={`Are you sure you want to delete estimate ${selectedEstimate?.estimate_number}?`}
+        onConfirm={() =>
+          selectedEstimate && deleteMutation.mutate(selectedEstimate.id)
+        }
+        isLoading={deleteMutation.isPending}
+      />
+    </div>
+  );
+}
