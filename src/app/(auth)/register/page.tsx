@@ -113,7 +113,7 @@ export default function RegisterPage() {
       <CardHeader className="space-y-1">
         <CardTitle className="text-2xl">Create your shop</CardTitle>
         <CardDescription>
-          Set up your auto repair shop and owner account in minutes
+          Set up your shop on PyX AutoCare Pro in minutes
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>

@@ -1,6 +1,6 @@
-# AutoCare Pro — Auto Repair Shop Management System
+# PyX AutoCare Pro
 
-A production-ready, SaaS-ready automotive workshop ERP built with Next.js, TypeScript, Supabase, and shadcn/ui. Supports multiple repair shops through multi-tenant architecture with Row Level Security.
+Auto care shop management system by PyX. Production-ready, SaaS-ready automotive workshop ERP built with Next.js, TypeScript, Supabase, and shadcn/ui. Supports multiple repair shops through multi-tenant architecture with Row Level Security.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
@@ -154,4 +154,4 @@ npm run lint     # ESLint
 
 ## License
 
-Private — Commercial use for auto repair shop management.
+Private — PyX AutoCare Pro. Commercial use for auto care shop management.

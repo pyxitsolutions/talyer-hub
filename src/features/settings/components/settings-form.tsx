@@ -112,7 +112,7 @@ export function SettingsForm() {
       <Card>
         <CardHeader>
           <CardTitle>Shop Information</CardTitle>
-          <CardDescription>Update your auto repair shop details.</CardDescription>
+          <CardDescription>Update your shop profile and contact details.</CardDescription>
         </CardHeader>
         <CardContent>
           <form

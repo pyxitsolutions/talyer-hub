@@ -173,7 +173,7 @@ export function CustomerTable() {
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description="Manage customer records for your auto repair shop."
+        description="Manage customer records for your shop."
       >
         <Button
           onClick={() => {

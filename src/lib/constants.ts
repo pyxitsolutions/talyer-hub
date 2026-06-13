@@ -1,6 +1,8 @@
 import type { ExpenseCategory, UnitCategory } from "@/types/database";
 
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "AutoCare Pro";
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "PyX AutoCare Pro";
+export const APP_DESCRIPTION =
+  "Professional auto care shop management system by PyX";
 
 export const CURRENCY_CODE =
   process.env.NEXT_PUBLIC_CURRENCY_CODE || "PHP";

@@ -34,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PAYMENT_METHODS } from "@/lib/constants";
+import { APP_NAME, PAYMENT_METHODS } from "@/lib/constants";
 import { downloadPDF, generateInvoicePDF } from "@/lib/pdf/generator";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { useShop } from "@/lib/hooks/use-shop";
@@ -144,7 +144,7 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
             <div>
               <CardTitle className="text-2xl">Billing Invoice</CardTitle>
               <CardDescription>
-                {shop?.shop_name ?? "Auto Repair Shop"}
+                {shop?.shop_name ?? APP_NAME}
               </CardDescription>
             </div>
             {qrDataUrl && (

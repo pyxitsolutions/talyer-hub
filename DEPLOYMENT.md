@@ -1,6 +1,6 @@
-# AutoCare Pro — Deployment Guide
+# PyX AutoCare Pro — Deployment Guide
 
-Production deployment guide for the Auto Repair Shop Management System (SaaS-ready, multi-tenant).
+Production deployment guide for PyX AutoCare Pro (SaaS-ready, multi-tenant auto care shop management).
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (server-only, for registration) |
 | `NEXT_PUBLIC_APP_URL` | App URL (e.g. `https://yourapp.vercel.app`) |
-| `NEXT_PUBLIC_APP_NAME` | Display name (default: AutoCare Pro) |
+| `NEXT_PUBLIC_APP_NAME` | Display name (default: PyX AutoCare Pro) |
 
 > **Security:** Never expose `SUPABASE_SERVICE_ROLE_KEY` to the client. Use only in server actions.
 

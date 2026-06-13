@@ -1,4 +1,4 @@
--- Seed Data for Auto Repair Shop Management System
+-- Seed Data for PyX AutoCare Pro
 
 -- Roles
 INSERT INTO roles (id, name, description) VALUES
