@@ -37,6 +37,21 @@ function getLinkedInvoiceNumber(jobOrder: JobOrderWithRelations): string | null 
   return jobOrder.invoices?.[0]?.invoice_number ?? null;
 }
 
+function getJobOrderDeleteBlockReason(
+  jobOrder: JobOrderWithRelations
+): string | null {
+  if (jobOrder.status === "released") {
+    return "Cannot delete: this job order is already released.";
+  }
+
+  const linkedInvoice = getLinkedInvoiceNumber(jobOrder);
+  if (linkedInvoice) {
+    return `Cannot delete: invoice ${linkedInvoice} is linked to this job order.`;
+  }
+
+  return null;
+}
+
 export function JobOrderTable() {
   const queryClient = useQueryClient();
   const invalidateDashboard = useInvalidateDashboard();
@@ -205,13 +220,11 @@ export function JobOrderTable() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
-                disabled={!!getLinkedInvoiceNumber(row.original)}
+                disabled={!!getJobOrderDeleteBlockReason(row.original)}
                 onClick={() => {
-                  const linkedInvoice = getLinkedInvoiceNumber(row.original);
-                  if (linkedInvoice) {
-                    toast.error(
-                      `Cannot delete: invoice ${linkedInvoice} is linked to this job order.`
-                    );
+                  const blockReason = getJobOrderDeleteBlockReason(row.original);
+                  if (blockReason) {
+                    toast.error(blockReason);
                     return;
                   }
                   setSelectedJobOrder(row.original);

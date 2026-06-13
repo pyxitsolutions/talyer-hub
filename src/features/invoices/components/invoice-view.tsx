@@ -128,6 +128,14 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
         />
       </div>
 
+      {invoice.job_orders?.status === "released" && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive print:hidden">
+          <strong>Locked record.</strong> Job order{" "}
+          {invoice.job_orders.job_order_number} is released. This invoice cannot be
+          deleted.
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 print:hidden">
         <Button variant="outline" onClick={handlePrint}>
           <Printer className="mr-2 h-4 w-4" />

@@ -53,6 +53,28 @@ async function assertCanDeleteJobOrder(
   shopId: string,
   jobOrderId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: jobOrder, error: jobOrderError } = await supabase
+    .from("job_orders")
+    .select("status")
+    .eq("id", jobOrderId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (jobOrderError || !jobOrder) {
+    return {
+      ok: false,
+      error: jobOrderError?.message ?? "Job order not found",
+    };
+  }
+
+  if (jobOrder.status === "released") {
+    return {
+      ok: false,
+      error:
+        "Cannot delete job order: vehicle has already been released. This record is locked.",
+    };
+  }
+
   const { data: invoice, error } = await getLinkedInvoice(
     supabase,
     shopId,
@@ -66,7 +88,7 @@ async function assertCanDeleteJobOrder(
   if (invoice) {
     return {
       ok: false,
-      error: `Cannot delete job order: invoice ${invoice.invoice_number} is linked. Keep both records for billing and audit trail.`,
+      error: `Cannot delete job order: invoice ${invoice.invoice_number} is linked. Delete or unlink the invoice first, or wait until before invoicing.`,
     };
   }
 
@@ -150,7 +172,8 @@ export async function getJobOrderDeleteEligibility(
         success: true,
         data: {
           canDelete: true,
-          message: "No linked invoice. This job order can be deleted.",
+          message:
+            "This job order can be deleted. Released records and job orders with linked invoices cannot be deleted.",
         },
       };
     }

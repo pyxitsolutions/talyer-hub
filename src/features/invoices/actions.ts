@@ -30,6 +30,7 @@ export interface InvoiceWithRelations extends Invoice {
   customers: Customer;
   vehicles: Vehicle;
   invoice_items: InvoiceItem[];
+  job_orders?: Pick<JobOrder, "status" | "job_order_number"> | null;
 }
 
 function calculatePaymentStatus(
@@ -50,6 +51,79 @@ function calculateTotals(laborCost: number, items: { quantity: number; unit_pric
     partsCost,
     totalAmount: laborCost + partsCost,
   };
+}
+
+async function assertCanDeleteInvoice(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  invoiceId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .select("job_order_id")
+    .eq("id", invoiceId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (error || !invoice) {
+    return { ok: false, error: error?.message ?? "Invoice not found" };
+  }
+
+  if (!invoice.job_order_id) {
+    return { ok: true };
+  }
+
+  const { data: jobOrder, error: jobOrderError } = await supabase
+    .from("job_orders")
+    .select("status, job_order_number")
+    .eq("id", invoice.job_order_id)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (jobOrderError) {
+    return { ok: false, error: jobOrderError.message };
+  }
+
+  if (jobOrder?.status === "released") {
+    return {
+      ok: false,
+      error: `Cannot delete invoice: job order ${jobOrder.job_order_number} is already released. This record is locked.`,
+    };
+  }
+
+  return { ok: true };
+}
+
+export async function getInvoiceDeleteEligibility(
+  invoiceId: string
+): Promise<ActionResult<{ canDelete: boolean; message: string }>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+    const result = await assertCanDeleteInvoice(supabase, shopId, invoiceId);
+
+    if (result.ok) {
+      return {
+        success: true,
+        data: {
+          canDelete: true,
+          message:
+            "This invoice can be deleted. Invoices linked to a released job order cannot be deleted.",
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: { canDelete: false, message: result.error },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Failed to check delete eligibility",
+    };
+  }
 }
 
 async function deductInventoryForInvoice(
@@ -120,7 +194,9 @@ export async function getInvoices(
 
     let query = supabase
       .from("invoices")
-      .select("*, customers(*), vehicles(*), invoice_items(*)")
+      .select(
+        "*, customers(*), vehicles(*), invoice_items(*), job_orders(status, job_order_number)"
+      )
       .eq("shop_id", shopId)
       .order("invoice_date", { ascending: false });
 
@@ -155,7 +231,9 @@ export async function getInvoice(
 
     const { data, error } = await supabase
       .from("invoices")
-      .select("*, customers(*), vehicles(*), invoice_items(*)")
+      .select(
+        "*, customers(*), vehicles(*), invoice_items(*), job_orders(status, job_order_number)"
+      )
       .eq("id", id)
       .eq("shop_id", shopId)
       .single();
@@ -390,6 +468,11 @@ export async function deleteInvoice(id: string): Promise<ActionResult> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+
+    const deleteCheck = await assertCanDeleteInvoice(supabase, shopId, id);
+    if (!deleteCheck.ok) {
+      return { success: false, error: deleteCheck.error };
+    }
 
     await supabase
       .from("sales_records")

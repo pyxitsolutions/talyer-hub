@@ -38,9 +38,18 @@ import {
   getJobOrdersForSelect,
   getVehiclesForSelect,
   updateInvoice,
+  type InvoiceWithRelations,
 } from "../actions";
 import type { InvoiceFormValues } from "../schemas";
 import { InvoiceDialog } from "./invoice-dialog";
+
+function getInvoiceDeleteBlockReason(invoice: InvoiceWithRelations): string | null {
+  if (invoice.job_orders?.status === "released") {
+    return `Cannot delete: job order ${invoice.job_orders.job_order_number} is already released.`;
+  }
+
+  return null;
+}
 
 export function InvoiceTable() {
   const queryClient = useQueryClient();
@@ -220,7 +229,13 @@ export function InvoiceTable() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
+                disabled={!!getInvoiceDeleteBlockReason(row.original)}
                 onClick={() => {
+                  const blockReason = getInvoiceDeleteBlockReason(row.original);
+                  if (blockReason) {
+                    toast.error(blockReason);
+                    return;
+                  }
                   setSelectedInvoice(row.original);
                   setDeleteOpen(true);
                 }}
