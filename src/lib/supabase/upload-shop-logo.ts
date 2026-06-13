@@ -3,10 +3,12 @@
 import { createClient } from "@/lib/supabase/client";
 import {
   getLogoExtension,
+  MAX_LOGO_SIZE,
   normalizeLogoMimeType,
   validateLogoFile,
 } from "@/lib/supabase/logo-file";
 import { mapStorageError } from "@/lib/supabase/storage-errors";
+import { prepareLogoForUpload } from "@/lib/images/compress-logo";
 
 export type LogoUploadResult =
   | { success: true; logoUrl: string }
@@ -21,14 +23,31 @@ export async function uploadShopLogoToStorage(
     return { success: false, error: validationError };
   }
 
+  let preparedFile: File;
+  try {
+    preparedFile = await prepareLogoForUpload(file);
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to process image",
+    };
+  }
+
+  if (preparedFile.size > MAX_LOGO_SIZE) {
+    return {
+      success: false,
+      error: "Image is still too large after compression. Try a simpler logo.",
+    };
+  }
+
   const supabase = createClient();
-  const mimeType = normalizeLogoMimeType(file);
+  const mimeType = normalizeLogoMimeType(preparedFile);
   const extension = getLogoExtension(mimeType);
   const path = `${shopId}/logo.${extension}`;
 
   const { error: uploadError } = await supabase.storage
     .from("shop-logos")
-    .upload(path, file, {
+    .upload(path, preparedFile, {
       upsert: true,
       contentType: mimeType,
     });

@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useShop } from "@/lib/hooks/use-shop";
-import { MAX_LOGO_SIZE } from "@/lib/supabase/logo-file";
+import { MAX_LOGO_INPUT_SIZE } from "@/lib/supabase/logo-file";
 import {
   removeShopLogoFromStorage,
   uploadShopLogoToStorage,
@@ -97,8 +97,8 @@ export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
       return;
     }
 
-    if (file.size > MAX_LOGO_SIZE) {
-      toast.error("Logo must be 2MB or smaller.");
+    if (file.size > MAX_LOGO_INPUT_SIZE) {
+      toast.error("Logo must be 10MB or smaller.");
       event.target.value = "";
       return;
     }
@@ -116,8 +116,8 @@ export function ShopLogoUpload({ shopName, logoUrl }: ShopLogoUploadProps) {
       <CardHeader>
         <CardTitle>Shop Logo</CardTitle>
         <CardDescription>
-          Upload your shop logo. It appears in the sidebar, invoices, PDFs, and
-          the public verify page.
+          Upload your shop logo (PNG, JPG, WEBP, or SVG). Large images are
+          automatically resized and compressed before upload.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center">

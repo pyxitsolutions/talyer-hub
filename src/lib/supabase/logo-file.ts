@@ -8,6 +8,9 @@ const ALLOWED_LOGO_TYPES = new Set([
 
 export const MAX_LOGO_SIZE = 2 * 1024 * 1024;
 
+/** Original upload limit before client-side compression runs. */
+export const MAX_LOGO_INPUT_SIZE = 10 * 1024 * 1024;
+
 export function getLogoExtension(mimeType: string): string {
   switch (mimeType) {
     case "image/png":
@@ -56,8 +59,8 @@ export function validateLogoFile(file: File): string | null {
     return "Invalid file type. Use PNG, JPG, WEBP, or SVG.";
   }
 
-  if (file.size > MAX_LOGO_SIZE) {
-    return "Logo must be 2MB or smaller.";
+  if (file.size > MAX_LOGO_INPUT_SIZE) {
+    return "Logo must be 10MB or smaller.";
   }
 
   return null;
