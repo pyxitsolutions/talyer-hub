@@ -5,7 +5,7 @@ VALUES (
   'shop-logos',
   true,
   2097152,
-  ARRAY['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']
+  ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml']
 )
 ON CONFLICT (id) DO NOTHING;
 

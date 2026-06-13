@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getShopId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { getShopStorageClient, mapStorageError } from "@/lib/supabase/shop-storage";
 import type { Shop } from "@/types/database";
 
 export type ActionResult<T = void> =
@@ -36,6 +37,7 @@ export type PasswordFormValues = z.infer<typeof passwordFormSchema>;
 const ALLOWED_LOGO_TYPES = new Set([
   "image/png",
   "image/jpeg",
+  "image/jpg",
   "image/webp",
   "image/svg+xml",
 ]);
@@ -57,6 +59,27 @@ function getLogoExtension(mimeType: string): string {
   }
 }
 
+function normalizeLogoMimeType(file: File): string {
+  if (file.type && ALLOWED_LOGO_TYPES.has(file.type)) {
+    return file.type === "image/jpg" ? "image/jpeg" : file.type;
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    default:
+      return file.type;
+  }
+}
+
 export async function uploadShopLogo(
   formData: FormData
 ): Promise<ActionResult<{ logo_url: string }>> {
@@ -67,7 +90,7 @@ export async function uploadShopLogo(
       return { success: false, error: "Please choose a logo file." };
     }
 
-    if (!ALLOWED_LOGO_TYPES.has(file.type)) {
+    if (!ALLOWED_LOGO_TYPES.has(file.type) && !file.name.match(/\.(png|jpe?g|webp|svg)$/i)) {
       return {
         success: false,
         error: "Invalid file type. Use PNG, JPG, WEBP, or SVG.",
@@ -80,24 +103,26 @@ export async function uploadShopLogo(
 
     const shopId = await getShopId();
     const supabase = await createClient();
-    const extension = getLogoExtension(file.type);
+    const storage = await getShopStorageClient();
+    const mimeType = normalizeLogoMimeType(file);
+    const extension = getLogoExtension(mimeType);
     const path = `${shopId}/logo.${extension}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await storage.storage
       .from("shop-logos")
       .upload(path, buffer, {
         upsert: true,
-        contentType: file.type,
+        contentType: mimeType,
       });
 
     if (uploadError) {
-      return { success: false, error: uploadError.message };
+      return { success: false, error: mapStorageError(uploadError.message) };
     }
 
     const {
       data: { publicUrl },
-    } = supabase.storage.from("shop-logos").getPublicUrl(path);
+    } = storage.storage.from("shop-logos").getPublicUrl(path);
 
     const logoUrl = `${publicUrl}?v=${Date.now()}`;
 
@@ -127,23 +152,24 @@ export async function removeShopLogo(): Promise<ActionResult> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+    const storage = await getShopStorageClient();
 
-    const { data: files, error: listError } = await supabase.storage
+    const { data: files, error: listError } = await storage.storage
       .from("shop-logos")
       .list(shopId);
 
     if (listError) {
-      return { success: false, error: listError.message };
+      return { success: false, error: mapStorageError(listError.message) };
     }
 
     if (files?.length) {
       const paths = files.map((file) => `${shopId}/${file.name}`);
-      const { error: removeError } = await supabase.storage
+      const { error: removeError } = await storage.storage
         .from("shop-logos")
         .remove(paths);
 
       if (removeError) {
-        return { success: false, error: removeError.message };
+        return { success: false, error: mapStorageError(removeError.message) };
       }
     }
 
