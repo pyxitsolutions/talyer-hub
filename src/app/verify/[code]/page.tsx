@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { getInvoicePaymentSummary } from "@/lib/invoices/payment";
 import { getPublicInvoiceVerification } from "@/features/invoices/verify-actions";
 
 interface VerifyPageProps {
@@ -69,7 +70,10 @@ export default async function VerifyInvoicePage({ params }: VerifyPageProps) {
   }
 
   const invoice = result.data;
-  const balance = invoice.total_amount - invoice.amount_paid;
+  const paymentSummary = getInvoicePaymentSummary(
+    invoice.amount_paid,
+    invoice.total_amount
+  );
 
   return (
     <Card>
@@ -185,13 +189,19 @@ export default async function VerifyInvoicePage({ params }: VerifyPageProps) {
               <span>{formatCurrency(invoice.total_amount)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Paid</span>
+              <span className="text-muted-foreground">Amount Received</span>
               <span>{formatCurrency(invoice.amount_paid)}</span>
             </div>
-            {balance > 0 && (
+            {paymentSummary.change > 0 && (
+              <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                <span>Change</span>
+                <span>{formatCurrency(paymentSummary.change)}</span>
+              </div>
+            )}
+            {paymentSummary.balance > 0 && (
               <div className="flex justify-between text-amber-700 dark:text-amber-400">
                 <span>Balance</span>
-                <span>{formatCurrency(balance)}</span>
+                <span>{formatCurrency(paymentSummary.balance)}</span>
               </div>
             )}
           </div>

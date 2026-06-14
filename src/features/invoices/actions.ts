@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getShopId } from "@/lib/auth";
 import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { syncSalesFromInvoice } from "@/lib/sales/sync-from-invoice";
+import { normalizeInvoiceAmountPaid } from "@/lib/invoices/payment";
 import { createClient } from "@/lib/supabase/server";
 import type { PaginatedResult } from "@/lib/types/pagination";
 import { generateNumber } from "@/lib/utils";
@@ -48,8 +49,9 @@ function calculatePaymentStatus(
   amountPaid: number,
   totalAmount: number
 ): PaymentStatus {
-  if (amountPaid <= 0) return "unpaid";
-  if (amountPaid >= totalAmount) return "paid";
+  const appliedPaid = normalizeInvoiceAmountPaid(amountPaid, totalAmount);
+  if (appliedPaid <= 0) return "unpaid";
+  if (appliedPaid >= totalAmount) return "paid";
   return "partial";
 }
 
@@ -308,6 +310,10 @@ export async function createInvoice(
       parsed.data.amount_paid,
       totalAmount
     );
+    const amountPaid = normalizeInvoiceAmountPaid(
+      parsed.data.amount_paid,
+      totalAmount
+    );
 
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
@@ -326,7 +332,7 @@ export async function createInvoice(
         labor_cost: parsed.data.labor_cost,
         parts_cost: partsCost,
         total_amount: totalAmount,
-        amount_paid: parsed.data.amount_paid,
+        amount_paid: amountPaid,
         payment_method: (parsed.data.payment_method as PaymentMethod) || null,
         payment_status: paymentStatus,
         technician_name: parsed.data.technician_name || null,
@@ -415,6 +421,10 @@ export async function updateInvoice(
       parsed.data.amount_paid,
       totalAmount
     );
+    const amountPaid = normalizeInvoiceAmountPaid(
+      parsed.data.amount_paid,
+      totalAmount
+    );
 
     const { data, error } = await supabase
       .from("invoices")
@@ -431,7 +441,7 @@ export async function updateInvoice(
         labor_cost: parsed.data.labor_cost,
         parts_cost: partsCost,
         total_amount: totalAmount,
-        amount_paid: parsed.data.amount_paid,
+        amount_paid: amountPaid,
         payment_method: (parsed.data.payment_method as PaymentMethod) || null,
         payment_status: paymentStatus,
         technician_name: parsed.data.technician_name || null,
@@ -557,11 +567,15 @@ export async function updatePayment(
       parsed.data.amount_paid,
       existing.total_amount
     );
+    const amountPaid = normalizeInvoiceAmountPaid(
+      parsed.data.amount_paid,
+      existing.total_amount
+    );
 
     const { data, error } = await supabase
       .from("invoices")
       .update({
-        amount_paid: parsed.data.amount_paid,
+        amount_paid: amountPaid,
         payment_method: (parsed.data.payment_method as PaymentMethod) || null,
         payment_status: paymentStatus,
       })

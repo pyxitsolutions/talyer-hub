@@ -369,8 +369,11 @@ export function InvoiceForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="amount_paid">Amount Paid</Label>
-          <Input id="amount_paid" type="number" step="0.01" {...register("amount_paid")} />
+          <Label htmlFor="amount_paid">Amount Received</Label>
+          <Input id="amount_paid" type="number" step="0.01" min="0" {...register("amount_paid")} />
+          <p className="text-xs text-muted-foreground">
+            Cash received from customer. If higher than total, excess is change — not recorded as overpayment.
+          </p>
         </div>
         <div className="space-y-2">
           <Label>Payment Method</Label>

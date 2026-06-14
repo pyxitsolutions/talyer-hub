@@ -27,8 +27,9 @@ export async function syncSalesFromInvoice(
     return;
   }
 
+  const appliedPaid = Math.min(invoice.amount_paid, invoice.total_amount);
   const ratio =
-    invoice.total_amount > 0 ? invoice.amount_paid / invoice.total_amount : 1;
+    invoice.total_amount > 0 ? appliedPaid / invoice.total_amount : 1;
 
   const partsAmount = Math.round(invoice.parts_cost * ratio * 100) / 100;
   const laborAmount = Math.round(invoice.labor_cost * ratio * 100) / 100;

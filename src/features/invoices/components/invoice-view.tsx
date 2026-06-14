@@ -40,6 +40,7 @@ import { downloadPDF, generateInvoicePDF } from "@/lib/pdf/generator";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { useShop } from "@/lib/hooks/use-shop";
 import { formatCurrency, formatDate, formatQuantity } from "@/lib/utils";
+import { getInvoicePaymentSummary } from "@/lib/invoices/payment";
 import type { PaymentMethod } from "@/types/database";
 import { getInvoice, updatePayment } from "../actions";
 
@@ -87,7 +88,20 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       invalidateDashboard();
-      toast.success("Payment updated");
+      if (invoice) {
+        const tendered = parseFloat(amountPaid) || 0;
+        const { change } = getInvoicePaymentSummary(
+          tendered,
+          invoice.total_amount
+        );
+        toast.success(
+          change > 0
+            ? `Payment recorded. Change: ${formatCurrency(change)}`
+            : "Payment updated"
+        );
+      } else {
+        toast.success("Payment updated");
+      }
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -113,6 +127,16 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
   if (!invoice) {
     return <p className="text-destructive">Invoice not found.</p>;
   }
+
+  const paymentSummary = getInvoicePaymentSummary(
+    invoice.amount_paid,
+    invoice.total_amount
+  );
+  const tenderedAmount = parseFloat(amountPaid) || 0;
+  const previewSummary = getInvoicePaymentSummary(
+    tenderedAmount,
+    invoice.total_amount
+  );
 
   return (
     <div className="space-y-6">
@@ -252,14 +276,20 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>Paid</span>
-                  <span>{formatCurrency(invoice.amount_paid)}</span>
+                  <span>{formatCurrency(paymentSummary.appliedPaid)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span>Balance</span>
-                  <span>
-                    {formatCurrency(invoice.total_amount - invoice.amount_paid)}
-                  </span>
-                </div>
+                {paymentSummary.change > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-700 dark:text-emerald-400">
+                    <span>Change</span>
+                    <span>{formatCurrency(paymentSummary.change)}</span>
+                  </div>
+                )}
+                {paymentSummary.balance > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span>Balance</span>
+                    <span>{formatCurrency(paymentSummary.balance)}</span>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -271,41 +301,53 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
           <CardTitle>Update Payment</CardTitle>
           <CardDescription>Record payment received for this invoice.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-2">
-            <Label htmlFor="amount_paid">Amount Paid</Label>
-            <Input
-              id="amount_paid"
-              type="number"
-              step="0.01"
-              value={amountPaid}
-              onChange={(e) => setAmountPaid(e.target.value)}
-            />
-          </div>
-          <div className="flex-1 space-y-2">
-            <Label>Payment Method</Label>
-            <Select
-              value={paymentMethod}
-              onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="amount_paid">Amount Received</Label>
+              <Input
+                id="amount_paid"
+                type="number"
+                step="0.01"
+                min="0"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter cash or payment received. Any amount over the invoice total
+                is treated as change, not balance.
+              </p>
+            </div>
+            <div className="flex-1 space-y-2">
+              <Label>Payment Method</Label>
+              <Select
+                value={paymentMethod}
+                onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select method" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((method) => (
+                    <SelectItem key={method.value} value={method.value}>
+                      {method.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              onClick={() => paymentMutation.mutate()}
+              disabled={paymentMutation.isPending}
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Select method" />
-              </SelectTrigger>
-              <SelectContent>
-                {PAYMENT_METHODS.map((method) => (
-                  <SelectItem key={method.value} value={method.value}>
-                    {method.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {paymentMutation.isPending ? "Saving..." : "Update Payment"}
+            </Button>
           </div>
-          <Button
-            onClick={() => paymentMutation.mutate()}
-            disabled={paymentMutation.isPending}
-          >
-            {paymentMutation.isPending ? "Saving..." : "Update Payment"}
-          </Button>
+          {previewSummary.change > 0 && (
+            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              Change to give: {formatCurrency(previewSummary.change)}
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
