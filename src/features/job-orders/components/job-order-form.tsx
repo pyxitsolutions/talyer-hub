@@ -241,6 +241,8 @@ export function JobOrderForm({
   const unitSelected = !multipleUnits || !!unitReceivedId;
   const canSubmitCreate =
     !isCreate || (!!estimateId && hasUnitLog && unitSelected);
+  const lockCustomerVehicle =
+    (isCreate && !!estimateId) || (!isCreate && !!jobOrder?.estimate_id);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -315,7 +317,7 @@ export function JobOrderForm({
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
-                disabled={isCreate && !!estimateId}
+                disabled={lockCustomerVehicle}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a customer" />
@@ -346,7 +348,7 @@ export function JobOrderForm({
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
-                disabled={!customerId || (isCreate && !!estimateId)}
+                disabled={!customerId || lockCustomerVehicle}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a vehicle" />
@@ -364,6 +366,12 @@ export function JobOrderForm({
           {errors.vehicle_id && (
             <p className="text-sm text-destructive">
               {errors.vehicle_id.message}
+            </p>
+          )}
+          {lockCustomerVehicle && (
+            <p className="text-sm text-muted-foreground">
+              Customer and vehicle are fixed from the linked estimate and unit
+              log.
             </p>
           )}
         </div>

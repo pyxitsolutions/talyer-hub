@@ -994,6 +994,59 @@ export async function updateJobOrder(
       }
     }
 
+    const { data: existingJobOrder, error: existingError } = await supabase
+      .from("job_orders")
+      .select("estimate_id, customer_id, vehicle_id")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .single();
+
+    if (existingError || !existingJobOrder) {
+      return { success: false, error: "Job order not found" };
+    }
+
+    if (existingJobOrder.estimate_id) {
+      const { data: estimate, error: estimateError } = await supabase
+        .from("repair_estimates")
+        .select("customer_id, vehicle_id")
+        .eq("id", existingJobOrder.estimate_id)
+        .eq("shop_id", shopId)
+        .single();
+
+      if (estimateError || !estimate) {
+        return { success: false, error: "Linked estimate not found" };
+      }
+
+      if (
+        parsed.data.customer_id !== estimate.customer_id ||
+        parsed.data.vehicle_id !== estimate.vehicle_id
+      ) {
+        return {
+          success: false,
+          error:
+            "Customer and vehicle cannot be changed for a job order linked to an estimate.",
+        };
+      }
+    }
+
+    const { data: linkedUnit } = await supabase
+      .from("units_received")
+      .select("vehicle_id")
+      .eq("job_order_id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (
+      linkedUnit?.vehicle_id &&
+      linkedUnit.vehicle_id !== parsed.data.vehicle_id
+    ) {
+      return {
+        success: false,
+        error:
+          "Vehicle cannot be changed because a unit log is linked to this job order.",
+      };
+    }
+
     const oldInventoryParts = (existingParts ?? [])
       .filter((p) => p.inventory_item_id)
       .map((p) => ({
