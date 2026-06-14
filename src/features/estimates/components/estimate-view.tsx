@@ -9,6 +9,7 @@ import {
   Check,
   Download,
   Printer,
+  Undo2,
   Wrench,
   X,
 } from "lucide-react";
@@ -59,6 +60,7 @@ import {
   approveEstimate,
   getEstimate,
   rejectEstimate,
+  revertEstimateToDraft,
 } from "../actions";
 
 interface EstimateViewProps {
@@ -113,6 +115,19 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
       queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
       queryClient.invalidateQueries({ queryKey: ["estimates"] });
       toast.success("Estimate rejected");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const revertMutation = useMutation({
+    mutationFn: async () => {
+      const result = await revertEstimateToDraft(estimateId);
+      if (!result.success) throw new Error(result.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      toast.success("Estimate moved back to draft");
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -203,17 +218,27 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
               </>
             )}
             {estimate.status === "approved" && !linkedJobOrder && (
-              <Button
-                onClick={() => convertMutation.mutate()}
-                disabled={
-                  convertMutation.isPending ||
-                  !selectedUnitId ||
-                  availableUnits.length === 0
-                }
-              >
-                <Wrench className="mr-2 h-4 w-4" />
-                Convert to Job Order
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => revertMutation.mutate()}
+                  disabled={revertMutation.isPending}
+                >
+                  <Undo2 className="mr-2 h-4 w-4" />
+                  Back to Draft
+                </Button>
+                <Button
+                  onClick={() => convertMutation.mutate()}
+                  disabled={
+                    convertMutation.isPending ||
+                    !selectedUnitId ||
+                    availableUnits.length === 0
+                  }
+                >
+                  <Wrench className="mr-2 h-4 w-4" />
+                  Convert to Job Order
+                </Button>
+              </>
             )}
           </div>
         </PageHeader>

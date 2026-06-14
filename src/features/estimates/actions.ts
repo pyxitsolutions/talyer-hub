@@ -43,6 +43,7 @@ export interface EstimateListItem extends Omit<
 > {
   customers?: Pick<Customer, "full_name" | "customer_number"> | null;
   vehicles?: Pick<Vehicle, "plate_number" | "brand" | "model"> | null;
+  job_orders?: Pick<JobOrder, "id">[] | Pick<JobOrder, "id"> | null;
 }
 
 function calculateCosts(items: EstimateItemValues[], laborCost: number) {
@@ -55,6 +56,18 @@ function calculateCosts(items: EstimateItemValues[], laborCost: number) {
     labor_cost: laborCost,
     total_cost: partsCost + laborCost,
   };
+}
+
+function assertPositiveTotalCost(
+  totalCost: number
+): { ok: true } | { ok: false; error: string } {
+  if (totalCost <= 0) {
+    return {
+      ok: false,
+      error: "Estimate total must be greater than zero",
+    };
+  }
+  return { ok: true };
 }
 
 export async function getEstimates(
@@ -73,7 +86,7 @@ export async function getEstimates(
     let query = supabase
       .from("repair_estimates")
       .select(
-        "id, shop_id, estimate_number, estimate_date, customer_id, vehicle_id, chassis_number, engine_number, problem_description, repair_description, recommendation, technician_name, labor_cost, parts_cost, total_cost, status, created_at, updated_at, customers(full_name, customer_number), vehicles(plate_number, brand, model)",
+        "id, shop_id, estimate_number, estimate_date, customer_id, vehicle_id, chassis_number, engine_number, problem_description, repair_description, recommendation, technician_name, labor_cost, parts_cost, total_cost, status, created_at, updated_at, customers(full_name, customer_number), vehicles(plate_number, brand, model), job_orders(id)",
         { count: "exact" }
       )
       .eq("shop_id", shopId)
@@ -269,6 +282,10 @@ export async function createEstimate(
     const shopId = await getShopId();
     const supabase = await createClient();
     const costs = calculateCosts(parsed.data.items, parsed.data.labor_cost);
+    const totalCheck = assertPositiveTotalCost(costs.total_cost);
+    if (!totalCheck.ok) {
+      return { success: false, error: totalCheck.error };
+    }
 
     const activeCheck = await assertNoActiveEstimateForVehicle(
       supabase,
@@ -381,6 +398,10 @@ export async function updateEstimate(
     }
 
     const costs = calculateCosts(parsed.data.items, parsed.data.labor_cost);
+    const totalCheck = assertPositiveTotalCost(costs.total_cost);
+    if (!totalCheck.ok) {
+      return { success: false, error: totalCheck.error };
+    }
 
     const { data, error } = await supabase
       .from("repair_estimates")
@@ -511,7 +532,7 @@ export async function approveEstimate(
 
     const { data: draft, error: draftError } = await supabase
       .from("repair_estimates")
-      .select("customer_id, vehicle_id")
+      .select("customer_id, vehicle_id, total_cost")
       .eq("id", id)
       .eq("shop_id", shopId)
       .eq("status", "draft")
@@ -522,6 +543,11 @@ export async function approveEstimate(
         success: false,
         error: "Estimate not found or cannot be approved",
       };
+    }
+
+    const totalCheck = assertPositiveTotalCost(Number(draft.total_cost));
+    if (!totalCheck.ok) {
+      return { success: false, error: totalCheck.error };
     }
 
     const activeCheck = await assertNoActiveEstimateForVehicle(
@@ -558,6 +584,76 @@ export async function approveEstimate(
     return {
       success: false,
       error: err instanceof Error ? err.message : "Failed to approve estimate",
+    };
+  }
+}
+
+export async function revertEstimateToDraft(
+  id: string
+): Promise<ActionResult<RepairEstimate>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const { data: existing, error: existingError } = await supabase
+      .from("repair_estimates")
+      .select("status")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .single();
+
+    if (existingError || !existing) {
+      return { success: false, error: "Estimate not found" };
+    }
+
+    if (existing.status !== "approved") {
+      return {
+        success: false,
+        error: "Only approved estimates can be reverted to draft",
+      };
+    }
+
+    const { data: jobOrder } = await supabase
+      .from("job_orders")
+      .select("id")
+      .eq("estimate_id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (jobOrder) {
+      return {
+        success: false,
+        error:
+          "Cannot revert to draft: this estimate is already linked to a job order",
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("repair_estimates")
+      .update({ status: "draft" })
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .eq("status", "approved")
+      .select()
+      .single();
+
+    if (error || !data) {
+      return {
+        success: false,
+        error: "Estimate not found or cannot be reverted to draft",
+      };
+    }
+
+    revalidatePath("/dashboard/estimates");
+    revalidatePath(`/dashboard/estimates/${id}`);
+    return { success: true, data };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Failed to revert estimate to draft",
     };
   }
 }

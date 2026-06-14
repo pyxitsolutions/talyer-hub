@@ -26,6 +26,18 @@ export const estimateFormSchema = z.object({
   technician_name: z.string().max(200).optional().or(z.literal("")),
   labor_cost: z.coerce.number().min(0, "Labor cost must be 0 or more"),
   items: z.array(estimateItemSchema),
+}).superRefine((data, ctx) => {
+  const partsCost = data.items.reduce(
+    (sum, item) => sum + item.quantity * item.unit_price,
+    0
+  );
+  if (partsCost + data.labor_cost <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Estimate total must be greater than zero",
+      path: ["labor_cost"],
+    });
+  }
 });
 
 export type EstimateItemValues = z.infer<typeof estimateItemSchema>;

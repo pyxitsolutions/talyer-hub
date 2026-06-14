@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,11 +40,21 @@ import {
   getEstimates,
   getInventoryForSelect,
   rejectEstimate,
+  revertEstimateToDraft,
   updateEstimate,
   type EstimateListItem,
 } from "../actions";
 import type { EstimateFormValues } from "../schemas";
 import { EstimateDialog } from "./estimate-dialog";
+
+function estimateHasJobOrder(
+  estimate: EstimateListItem
+): boolean {
+  if (!estimate.job_orders) return false;
+  return Array.isArray(estimate.job_orders)
+    ? estimate.job_orders.length > 0
+    : true;
+}
 
 export function EstimateTable() {
   const queryClient = useQueryClient();
@@ -173,6 +184,18 @@ export function EstimateTable() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const revertMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const result = await revertEstimateToDraft(id);
+      if (!result.success) throw new Error(result.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      toast.success("Estimate moved back to draft");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const handleSubmit = async (values: EstimateFormValues) => {
     if (selectedEstimate) {
       await updateMutation.mutateAsync({ id: selectedEstimate.id, values });
@@ -276,12 +299,21 @@ export function EstimateTable() {
                   </DropdownMenuItem>
                 </>
               )}
+              {row.original.status === "approved" &&
+                !estimateHasJobOrder(row.original) && (
+                  <DropdownMenuItem
+                    onClick={() => revertMutation.mutate(row.original.id)}
+                  >
+                    <Undo2 className="mr-2 h-4 w-4" />
+                    Back to Draft
+                  </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       },
     ],
-    [approveMutation, rejectMutation]
+    [approveMutation, rejectMutation, revertMutation]
   );
 
   return (
