@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import QRCode from "qrcode";
-import type { Shop, RepairEstimate, Invoice, JobOrder } from "@/types/database";
+import type { Shop, RepairEstimate, Invoice, JobOrder, JobOrderPart, Customer, Vehicle } from "@/types/database";
 import { formatCurrencyForPDF, formatDate } from "@/lib/utils";
 
 interface PDFHeaderOptions {
@@ -206,31 +206,91 @@ export async function generateInvoicePDF(
   return doc;
 }
 
-export async function generateJobOrderPDF(shop: Shop, jobOrder: JobOrder) {
+export async function generateJobOrderPDF(
+  shop: Shop,
+  jobOrder: JobOrder & {
+    customers?: Customer;
+    vehicles?: Vehicle;
+    job_order_parts?: JobOrderPart[];
+    repair_estimates?: Pick<RepairEstimate, "estimate_number"> | null;
+  }
+) {
   const doc = new jsPDF();
+  const documentDate =
+    jobOrder.date_started?.split("T")[0] ??
+    jobOrder.created_at.split("T")[0];
+
   await addHeader(doc, {
     shop,
     title: "JOB ORDER",
     documentNumber: jobOrder.job_order_number,
-    date: jobOrder.date_started || new Date().toISOString(),
+    date: documentDate,
   });
 
   let y = 65;
   doc.setFontSize(10);
   doc.text(`Customer: ${jobOrder.customers?.full_name || "N/A"}`, 14, y);
   y += 6;
-  doc.text(`Vehicle: ${jobOrder.vehicles?.brand || ""} ${jobOrder.vehicles?.model || ""}`, 14, y);
+  doc.text(
+    `Vehicle: ${jobOrder.vehicles?.brand || ""} ${jobOrder.vehicles?.model || ""} (${jobOrder.vehicles?.plate_number || ""})`,
+    14,
+    y
+  );
   y += 6;
-  doc.text(`Technician: ${jobOrder.assigned_technician || "Unassigned"}`, 14, y);
+  doc.text(
+    `Chassis: ${jobOrder.vehicles?.chassis_number || "N/A"} | Engine: ${jobOrder.vehicles?.engine_number || "N/A"}`,
+    14,
+    y
+  );
+  y += 6;
+  doc.text(`Technician: ${jobOrder.assigned_technician || "—"}`, 14, y);
   y += 6;
   doc.text(`Status: ${jobOrder.status.toUpperCase()}`, 14, y);
+  y += 6;
+  doc.text(
+    `Date Started: ${jobOrder.date_started ? formatDate(jobOrder.date_started) : "—"} | Date Completed: ${jobOrder.date_completed ? formatDate(jobOrder.date_completed) : "—"}`,
+    14,
+    y
+  );
+  if (jobOrder.repair_estimates?.estimate_number) {
+    y += 6;
+    doc.text(`Source Estimate: ${jobOrder.repair_estimates.estimate_number}`, 14, y);
+  }
   y += 10;
 
   doc.text("Repair Description:", 14, y);
   y += 5;
   doc.setFontSize(9);
-  const lines = doc.splitTextToSize(jobOrder.repair_description || "N/A", 180);
-  doc.text(lines, 14, y);
+  const repairLines = doc.splitTextToSize(jobOrder.repair_description || "N/A", 180);
+  doc.text(repairLines, 14, y);
+  y += repairLines.length * 5 + 5;
+
+  if (jobOrder.job_order_parts?.length) {
+    doc.setFontSize(10);
+    autoTable(doc, {
+      startY: y,
+      head: [["Part Name", "Qty", "Unit Price", "Total"]],
+      body: jobOrder.job_order_parts.map((item) => [
+        item.part_name,
+        Math.round(item.quantity).toString(),
+        formatCurrencyForPDF(item.unit_price),
+        formatCurrencyForPDF(item.total_price),
+      ]),
+      theme: "striped",
+      headStyles: { fillColor: [30, 30, 30] },
+    });
+    y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+  }
+
+  const partsTotal = (jobOrder.job_order_parts ?? []).reduce(
+    (sum, part) => sum + Number(part.total_price),
+    0
+  );
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Parts Total: ${formatCurrencyForPDF(partsTotal)}`, 140, y);
+  doc.setFont("helvetica", "normal");
 
   addSignatureArea(doc, 260);
   return doc;
