@@ -33,6 +33,7 @@ interface JobOrderDialogProps {
   >[];
   onSubmit: (values: JobOrderFormValues) => Promise<void>;
   isLoading?: boolean;
+  initialEstimateId?: string;
 }
 
 export function JobOrderDialog({
@@ -43,6 +44,7 @@ export function JobOrderDialog({
   inventory,
   onSubmit,
   isLoading = false,
+  initialEstimateId,
 }: JobOrderDialogProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [canRelease, setCanRelease] = useState(true);
@@ -88,12 +90,12 @@ export function JobOrderDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {jobOrder ? "Edit Job Order" : "New Job Order"}
+            {jobOrder ? "Edit Job Order" : "New Job Order from Estimate"}
           </DialogTitle>
           <DialogDescription>
             {jobOrder
               ? "Update job order details and parts used."
-              : "Create a job order after the unit has been logged in Units Received."}
+              : "Select an approved estimate, review the details, then save. A current unit log for that vehicle is required."}
           </DialogDescription>
         </DialogHeader>
         <JobOrderForm
@@ -107,6 +109,7 @@ export function JobOrderDialog({
           isLoading={isLoading}
           canRelease={canRelease}
           releaseBlockMessage={releaseBlockMessage}
+          initialEstimateId={initialEstimateId}
         />
       </DialogContent>
     </Dialog>

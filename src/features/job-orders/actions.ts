@@ -18,6 +18,7 @@ import type {
   Vehicle,
 } from "@/types/database";
 import {
+  jobOrderCreateFormSchema,
   jobOrderFormSchema,
   type JobOrderFormValues,
   type JobOrderPartValues,
@@ -553,6 +554,180 @@ export interface UnitReceivedForJobOrderOption {
   notes: string | null;
 }
 
+export interface ApprovedEstimateForJobOrderOption {
+  id: string;
+  estimate_number: string;
+  estimate_date: string;
+  customer_id: string;
+  vehicle_id: string;
+  customers: Pick<Customer, "full_name"> | null;
+  vehicles: Pick<Vehicle, "plate_number" | "brand" | "model"> | null;
+}
+
+async function resolveEligibleUnitReceivedId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  customerId: string,
+  vehicleId: string
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const unitsResult = await getAvailableUnitsForJobOrderInternal(
+    supabase,
+    shopId,
+    vehicleId
+  );
+
+  if (!unitsResult.success) {
+    return { ok: false, error: unitsResult.error };
+  }
+
+  if (unitsResult.data.length === 0) {
+    return {
+      ok: false,
+      error:
+        "No current unit log is available for this vehicle. Log the unit in Units Received for this visit before creating a job order.",
+    };
+  }
+
+  const unitReceivedId = unitsResult.data[0].id;
+  const unitCheck = await assertUnitReceivedForJobOrder(
+    supabase,
+    shopId,
+    unitReceivedId,
+    customerId,
+    vehicleId
+  );
+
+  if (!unitCheck.ok) {
+    return unitCheck;
+  }
+
+  return { ok: true, id: unitReceivedId };
+}
+
+async function getAvailableUnitsForJobOrderInternal(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  vehicleId: string
+): Promise<ActionResult<UnitReceivedForJobOrderOption[]>> {
+  if (!vehicleId) {
+    return { success: true, data: [] };
+  }
+
+  const cutoffDate = getUnitLogCutoffDate();
+
+  const { data, error } = await supabase
+    .from("units_received")
+    .select("id, received_date, category, notes, created_at, job_order_id, vehicle_id")
+    .eq("shop_id", shopId)
+    .eq("vehicle_id", vehicleId)
+    .is("job_order_id", null)
+    .gte("received_date", cutoffDate)
+    .order("received_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  const lastClosedAtByVehicle = await getLastClosedAtByVehicle(supabase, shopId, [
+    vehicleId,
+  ]);
+
+  const eligibleUnits = (data ?? [])
+    .filter((unit) =>
+      isUnitLogEligibleForJobOrder(unit, lastClosedAtByVehicle, cutoffDate)
+    )
+    .map(({ id, received_date, category, notes }) => ({
+      id,
+      received_date,
+      category,
+      notes,
+    }));
+
+  return { success: true, data: eligibleUnits };
+}
+
+export async function getApprovedEstimatesForJobOrder(): Promise<
+  ActionResult<ApprovedEstimateForJobOrderOption[]>
+> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const [{ data: estimates, error: estimatesError }, { data: jobOrders, error: jobOrdersError }] =
+      await Promise.all([
+        supabase
+          .from("repair_estimates")
+          .select(
+            "id, estimate_number, estimate_date, customer_id, vehicle_id, customers(full_name), vehicles(plate_number, brand, model)"
+          )
+          .eq("shop_id", shopId)
+          .eq("status", "approved")
+          .order("estimate_date", { ascending: false }),
+        supabase
+          .from("job_orders")
+          .select("estimate_id")
+          .eq("shop_id", shopId)
+          .not("estimate_id", "is", null),
+      ]);
+
+    if (estimatesError) {
+      return { success: false, error: estimatesError.message };
+    }
+
+    if (jobOrdersError) {
+      return { success: false, error: jobOrdersError.message };
+    }
+
+    const usedEstimateIds = new Set(
+      (jobOrders ?? [])
+        .map((row) => row.estimate_id)
+        .filter((id): id is string => Boolean(id))
+    );
+
+    const availableEstimates: ApprovedEstimateForJobOrderOption[] = (
+      estimates ?? []
+    )
+      .filter((estimate) => !usedEstimateIds.has(estimate.id))
+      .map((estimate) => {
+        const customer = Array.isArray(estimate.customers)
+          ? estimate.customers[0]
+          : estimate.customers;
+        const vehicle = Array.isArray(estimate.vehicles)
+          ? estimate.vehicles[0]
+          : estimate.vehicles;
+
+        return {
+          id: estimate.id,
+          estimate_number: estimate.estimate_number,
+          estimate_date: estimate.estimate_date,
+          customer_id: estimate.customer_id,
+          vehicle_id: estimate.vehicle_id,
+          customers: customer
+            ? { full_name: customer.full_name as string }
+            : null,
+          vehicles: vehicle
+            ? {
+                plate_number: vehicle.plate_number as string,
+                brand: vehicle.brand as string,
+                model: vehicle.model as string,
+              }
+            : null,
+        };
+      });
+
+    return { success: true, data: availableEstimates };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Failed to fetch approved estimates",
+    };
+  }
+}
+
 export async function getAvailableUnitsForJobOrder(
   vehicleId: string
 ): Promise<ActionResult<UnitReceivedForJobOrderOption[]>> {
@@ -563,38 +738,7 @@ export async function getAvailableUnitsForJobOrder(
 
     const shopId = await getShopId();
     const supabase = await createClient();
-    const cutoffDate = getUnitLogCutoffDate();
-
-    const { data, error } = await supabase
-      .from("units_received")
-      .select("id, received_date, category, notes, created_at, job_order_id, vehicle_id")
-      .eq("shop_id", shopId)
-      .eq("vehicle_id", vehicleId)
-      .is("job_order_id", null)
-      .gte("received_date", cutoffDate)
-      .order("received_date", { ascending: false })
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    const lastClosedAtByVehicle = await getLastClosedAtByVehicle(supabase, shopId, [
-      vehicleId,
-    ]);
-
-    const eligibleUnits = (data ?? [])
-      .filter((unit) =>
-        isUnitLogEligibleForJobOrder(unit, lastClosedAtByVehicle, cutoffDate)
-      )
-      .map(({ id, received_date, category, notes }) => ({
-        id,
-        received_date,
-        category,
-        notes,
-      }));
-
-    return { success: true, data: eligibleUnits };
+    return getAvailableUnitsForJobOrderInternal(supabase, shopId, vehicleId);
   } catch (err) {
     return {
       success: false,
@@ -634,7 +778,7 @@ export async function createJobOrder(
   values: JobOrderFormValues
 ): Promise<ActionResult<JobOrder>> {
   try {
-    const parsed = jobOrderFormSchema.safeParse(values);
+    const parsed = jobOrderCreateFormSchema.safeParse(values);
     if (!parsed.success) {
       return { success: false, error: parsed.error.errors[0].message };
     }
@@ -650,24 +794,77 @@ export async function createJobOrder(
       };
     }
 
-    if (!parsed.data.unit_received_id) {
+    const { data: estimate, error: estimateError } = await supabase
+      .from("repair_estimates")
+      .select("id, customer_id, vehicle_id, status")
+      .eq("id", parsed.data.estimate_id)
+      .eq("shop_id", shopId)
+      .single();
+
+    if (estimateError || !estimate) {
+      return { success: false, error: "Estimate not found" };
+    }
+
+    if (estimate.status !== "approved") {
       return {
         success: false,
-        error:
-          "Log the unit in Units Received before creating a job order.",
+        error: "Only approved estimates can be used for job orders",
       };
     }
 
-    const unitCheck = await assertUnitReceivedForJobOrder(
-      supabase,
-      shopId,
-      parsed.data.unit_received_id,
-      parsed.data.customer_id,
-      parsed.data.vehicle_id
-    );
+    const { data: existingJobOrder } = await supabase
+      .from("job_orders")
+      .select("id")
+      .eq("estimate_id", parsed.data.estimate_id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
 
-    if (!unitCheck.ok) {
-      return { success: false, error: unitCheck.error };
+    if (existingJobOrder) {
+      return {
+        success: false,
+        error: "A job order already exists for this estimate",
+      };
+    }
+
+    if (
+      parsed.data.customer_id !== estimate.customer_id ||
+      parsed.data.vehicle_id !== estimate.vehicle_id
+    ) {
+      return {
+        success: false,
+        error: "Customer and vehicle must match the selected estimate",
+      };
+    }
+
+    let unitReceivedId: string;
+
+    if (parsed.data.unit_received_id) {
+      const unitCheck = await assertUnitReceivedForJobOrder(
+        supabase,
+        shopId,
+        parsed.data.unit_received_id,
+        parsed.data.customer_id,
+        parsed.data.vehicle_id
+      );
+
+      if (!unitCheck.ok) {
+        return { success: false, error: unitCheck.error };
+      }
+
+      unitReceivedId = parsed.data.unit_received_id;
+    } else {
+      const unitResolution = await resolveEligibleUnitReceivedId(
+        supabase,
+        shopId,
+        parsed.data.customer_id,
+        parsed.data.vehicle_id
+      );
+
+      if (!unitResolution.ok) {
+        return { success: false, error: unitResolution.error };
+      }
+
+      unitReceivedId = unitResolution.id;
     }
 
     const { count, error: countError } = await supabase
@@ -718,7 +915,7 @@ export async function createJobOrder(
     await linkUnitReceivedToJobOrder(
       supabase,
       shopId,
-      parsed.data.unit_received_id,
+      unitReceivedId,
       data.id,
       parsed.data.customer_id,
       parsed.data.vehicle_id
@@ -726,6 +923,8 @@ export async function createJobOrder(
 
     revalidatePath("/dashboard/job-orders");
     revalidatePath("/dashboard/units-received");
+    revalidatePath("/dashboard/estimates");
+    revalidatePath(`/dashboard/estimates/${parsed.data.estimate_id}`);
     revalidatePath("/dashboard/inventory");
     revalidatePath("/dashboard");
     return { success: true, data };

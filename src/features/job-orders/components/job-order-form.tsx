@@ -4,9 +4,10 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 
+import { getEstimate } from "@/features/estimates/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,8 +22,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { JOB_ORDER_STATUSES, UNIT_CATEGORIES } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Customer, InventoryItem, JobOrder, Vehicle } from "@/types/database";
-import { getAvailableUnitsForJobOrder } from "../actions";
 import {
+  getApprovedEstimatesForJobOrder,
+  getAvailableUnitsForJobOrder,
+} from "../actions";
+import {
+  jobOrderCreateFormSchema,
   jobOrderFormSchema,
   type JobOrderFormValues,
 } from "../schemas";
@@ -49,6 +54,31 @@ interface JobOrderFormProps {
   isLoading?: boolean;
   canRelease?: boolean;
   releaseBlockMessage?: string;
+  initialEstimateId?: string;
+}
+
+function StepHeading({
+  step,
+  title,
+  description,
+}: {
+  step: number;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+        {step}
+      </div>
+      <div>
+        <p className="font-medium leading-none">{title}</p>
+        {description && (
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function JobOrderForm({
@@ -62,7 +92,10 @@ export function JobOrderForm({
   isLoading = false,
   canRelease = true,
   releaseBlockMessage,
+  initialEstimateId,
 }: JobOrderFormProps) {
+  const isCreate = !jobOrder;
+
   const {
     register,
     handleSubmit,
@@ -70,12 +103,12 @@ export function JobOrderForm({
     setValue,
     formState: { errors },
   } = useForm<JobOrderFormValues>({
-    resolver: zodResolver(jobOrderFormSchema),
+    resolver: zodResolver(isCreate ? jobOrderCreateFormSchema : jobOrderFormSchema),
     defaultValues: {
       customer_id: jobOrder?.customer_id ?? "",
       vehicle_id: jobOrder?.vehicle_id ?? "",
       unit_received_id: "",
-      estimate_id: jobOrder?.estimate_id ?? "",
+      estimate_id: jobOrder?.estimate_id ?? initialEstimateId ?? "",
       assigned_technician: jobOrder?.assigned_technician ?? "",
       date_started: jobOrder?.date_started ?? "",
       date_completed: jobOrder?.date_completed ?? "",
@@ -91,14 +124,26 @@ export function JobOrderForm({
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, replace } = useFieldArray({
     control,
     name: "parts",
   });
 
+  const estimateId = useWatch({ control, name: "estimate_id" });
+  const unitReceivedId = useWatch({ control, name: "unit_received_id" });
   const customerId = useWatch({ control, name: "customer_id" });
   const vehicleId = useWatch({ control, name: "vehicle_id" });
   const parts = useWatch({ control, name: "parts" });
+
+  const { data: approvedEstimates = [] } = useQuery({
+    queryKey: ["approved-estimates-for-job-order"],
+    queryFn: async () => {
+      const result = await getApprovedEstimatesForJobOrder();
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: isCreate,
+  });
 
   const { data: availableUnits = [] } = useQuery({
     queryKey: ["units-for-job-order", vehicleId],
@@ -107,8 +152,17 @@ export function JobOrderForm({
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    enabled: !!vehicleId && !jobOrder,
+    enabled: !!vehicleId && isCreate,
   });
+
+  const selectedEstimate = approvedEstimates.find(
+    (estimate) => estimate.id === estimateId
+  );
+  const selectedUnit = availableUnits.find((unit) => unit.id === unitReceivedId);
+  const multipleUnits = availableUnits.length > 1;
+
+  const getUnitCategoryLabel = (category: string) =>
+    UNIT_CATEGORIES.find((item) => item.value === category)?.label ?? category;
 
   useEffect(() => {
     if (customerId) {
@@ -117,13 +171,54 @@ export function JobOrderForm({
   }, [customerId, onCustomerChange]);
 
   useEffect(() => {
-    if (!jobOrder) {
+    if (!isCreate || !estimateId) return;
+
+    let cancelled = false;
+
+    getEstimate(estimateId).then((result) => {
+      if (cancelled || !result.success) return;
+
+      const estimate = result.data;
+      setValue("customer_id", estimate.customer_id);
+      setValue("vehicle_id", estimate.vehicle_id);
+      setValue("assigned_technician", estimate.technician_name ?? "");
+      setValue("repair_description", estimate.repair_description ?? "");
+      setValue("date_started", new Date().toISOString().split("T")[0]);
+      setValue("unit_received_id", "");
+      replace(
+        (estimate.repair_estimate_items ?? []).map((item) => ({
+          part_name: item.part_name,
+          quantity: Math.round(Number(item.quantity)),
+          unit_price: Number(item.unit_price),
+          inventory_item_id: item.inventory_item_id ?? "",
+        }))
+      );
+      onCustomerChange(estimate.customer_id);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [estimateId, isCreate, onCustomerChange, replace, setValue]);
+
+  useEffect(() => {
+    if (!isCreate || !vehicleId) {
+      setValue("unit_received_id", "");
+      return;
+    }
+
+    if (availableUnits.length === 1) {
+      setValue("unit_received_id", availableUnits[0].id);
+      return;
+    }
+
+    if (
+      unitReceivedId &&
+      !availableUnits.some((unit) => unit.id === unitReceivedId)
+    ) {
       setValue("unit_received_id", "");
     }
-  }, [vehicleId, jobOrder, setValue]);
-
-  const getUnitCategoryLabel = (category: string) =>
-    UNIT_CATEGORIES.find((item) => item.value === category)?.label ?? category;
+  }, [availableUnits, isCreate, setValue, unitReceivedId, vehicleId]);
 
   const handleInventorySelect = (index: number, inventoryId: string) => {
     const item = inventory.find((i) => i.id === inventoryId);
@@ -140,8 +235,74 @@ export function JobOrderForm({
     0
   );
 
+  const hasUnitLog = availableUnits.length > 0;
+  const unitSelected = !multipleUnits || !!unitReceivedId;
+  const canSubmitCreate =
+    !isCreate || (!!estimateId && hasUnitLog && unitSelected);
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {isCreate && (
+        <section className="space-y-3">
+          <StepHeading
+            step={1}
+            title="Select approved estimate"
+            description="Customer, vehicle, and parts will be filled from the estimate."
+          />
+          <Controller
+            name="estimate_id"
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an approved estimate" />
+                </SelectTrigger>
+                <SelectContent>
+                  {approvedEstimates.map((estimate) => (
+                    <SelectItem key={estimate.id} value={estimate.id}>
+                      {estimate.estimate_number} —{" "}
+                      {estimate.customers?.full_name ?? "Unknown"} (
+                      {estimate.vehicles?.plate_number ?? "No plate"} —{" "}
+                      {estimate.vehicles?.brand} {estimate.vehicles?.model})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          {approvedEstimates.length === 0 && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              No approved estimates are available. Approve an estimate first, or
+              use one that does not already have a job order.
+            </p>
+          )}
+          {errors.estimate_id && (
+            <p className="text-sm text-destructive">
+              {errors.estimate_id.message}
+            </p>
+          )}
+        </section>
+      )}
+
+      {!isCreate && jobOrder?.repair_estimates?.estimate_number && (
+        <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Source estimate: </span>
+          <span className="font-medium">
+            {jobOrder.repair_estimates.estimate_number}
+          </span>
+        </div>
+      )}
+
+      {isCreate && estimateId && (
+        <section className="space-y-3">
+          <StepHeading
+            step={2}
+            title="Review job order details"
+            description="Adjust parts, dates, or technician before saving."
+          />
+        </section>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>Customer *</Label>
@@ -151,11 +312,8 @@ export function JobOrderForm({
             render={({ field }) => (
               <Select
                 value={field.value}
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  setValue("vehicle_id", "");
-                  setValue("unit_received_id", "");
-                }}
+                onValueChange={field.onChange}
+                disabled={isCreate && !!estimateId}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a customer" />
@@ -186,7 +344,7 @@ export function JobOrderForm({
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
-                disabled={!customerId}
+                disabled={!customerId || (isCreate && !!estimateId)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a vehicle" />
@@ -208,66 +366,6 @@ export function JobOrderForm({
           )}
         </div>
       </div>
-
-      {!jobOrder && (
-        <div className="space-y-2">
-          <Label>Unit Received *</Label>
-          <Controller
-            name="unit_received_id"
-            control={control}
-            render={({ field }) => (
-              <Select
-                value={field.value}
-                onValueChange={field.onChange}
-                disabled={!vehicleId}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      vehicleId
-                        ? "Select a logged unit"
-                        : "Select a vehicle first"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableUnits.map((unit) => (
-                    <SelectItem key={unit.id} value={unit.id}>
-                      {formatDate(unit.received_date)} —{" "}
-                      {getUnitCategoryLabel(unit.category)}
-                      {unit.notes ? ` (${unit.notes})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-          {vehicleId && availableUnits.length === 0 && (
-            <p className="text-sm text-amber-600 dark:text-amber-400">
-              No current unit log is available for this vehicle. Log a fresh unit
-              in{" "}
-              <Link
-                href="/dashboard/units-received"
-                className="font-medium underline underline-offset-4"
-              >
-                Units Received
-              </Link>{" "}
-              for this visit before creating a job order.
-            </p>
-          )}
-          {!vehicleId && (
-            <p className="text-sm text-muted-foreground">
-              Select a vehicle, then choose an open unit log from the current
-              visit.
-            </p>
-          )}
-          {errors.unit_received_id && (
-            <p className="text-sm text-destructive">
-              {errors.unit_received_id.message}
-            </p>
-          )}
-        </div>
-      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
@@ -426,13 +524,104 @@ export function JobOrderForm({
         )}
       </div>
 
+      {isCreate && estimateId && (
+        <section className="space-y-3">
+          <StepHeading
+            step={3}
+            title="Unit log for this visit"
+            description={
+              selectedEstimate?.vehicles
+                ? `Only unit logs for ${selectedEstimate.vehicles.plate_number} are eligible.`
+                : "A current unit log in Units Received is required before saving."
+            }
+          />
+
+          {!hasUnitLog ? (
+            <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">No unit log available</p>
+                <p className="mt-1">
+                  Log the vehicle in{" "}
+                  <Link
+                    href="/dashboard/units-received"
+                    className="font-medium underline underline-offset-4"
+                  >
+                    Units Received
+                  </Link>{" "}
+                  for this visit before creating a job order.
+                </p>
+              </div>
+            </div>
+          ) : multipleUnits ? (
+            <div className="space-y-3 rounded-lg border p-3">
+              <p className="text-sm text-muted-foreground">
+                Multiple unit logs found for this vehicle. Select which visit log
+                to link.
+              </p>
+              <div className="space-y-2">
+                <Label>Unit Received *</Label>
+                <Controller
+                  name="unit_received_id"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a unit log" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableUnits.map((unit) => (
+                          <SelectItem key={unit.id} value={unit.id}>
+                            {formatDate(unit.received_date)} —{" "}
+                            {getUnitCategoryLabel(unit.category)}
+                            {unit.notes ? ` (${unit.notes})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">Unit log ready — will auto-link on save</p>
+                <p className="mt-1">
+                  {formatDate(availableUnits[0].received_date)} —{" "}
+                  {getUnitCategoryLabel(availableUnits[0].category)}
+                  {availableUnits[0].notes
+                    ? ` (${availableUnits[0].notes})`
+                    : ""}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {multipleUnits && selectedUnit && (
+            <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">Selected unit log</p>
+                <p className="mt-1">
+                  {formatDate(selectedUnit.received_date)} —{" "}
+                  {getUnitCategoryLabel(selectedUnit.category)}
+                  {selectedUnit.notes ? ` (${selectedUnit.notes})` : ""}
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
         )}
-        <Button type="submit" disabled={isLoading}>
+        <Button type="submit" disabled={isLoading || !canSubmitCreate}>
           {isLoading
             ? "Saving..."
             : jobOrder

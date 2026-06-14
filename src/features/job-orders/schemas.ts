@@ -27,5 +27,10 @@ export const jobOrderFormSchema = z.object({
   parts: z.array(jobOrderPartSchema),
 });
 
+export const jobOrderCreateFormSchema = jobOrderFormSchema.extend({
+  estimate_id: z.string().uuid("Please select an approved estimate"),
+});
+
 export type JobOrderPartValues = z.infer<typeof jobOrderPartSchema>;
 export type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
+export type JobOrderCreateFormValues = z.infer<typeof jobOrderCreateFormSchema>;

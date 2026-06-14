@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
 import { Eye, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
@@ -53,6 +54,8 @@ function getJobOrderDeleteBlockReason(
 }
 
 export function JobOrderTable() {
+  const searchParams = useSearchParams();
+  const initialEstimateId = searchParams.get("estimateId") ?? undefined;
   const queryClient = useQueryClient();
   const invalidateDashboard = useInvalidateDashboard();
   const [search, setSearch] = useState("");
@@ -61,6 +64,13 @@ export function JobOrderTable() {
   const [selectedJobOrder, setSelectedJobOrder] = useState<
     JobOrderWithRelations | undefined
   >();
+
+  useEffect(() => {
+    if (initialEstimateId) {
+      setSelectedJobOrder(undefined);
+      setDialogOpen(true);
+    }
+  }, [initialEstimateId]);
 
   const { data: jobOrders = [], isLoading } = useQuery({
     queryKey: ["job-orders", search],
@@ -97,6 +107,9 @@ export function JobOrderTable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
       invalidateDashboard();
       toast.success("Job order created successfully");
     },
@@ -246,7 +259,7 @@ export function JobOrderTable() {
     <div className="space-y-6">
       <PageHeader
         title="Job Orders"
-        description="Track repair work and manage job order status."
+        description="Create job orders from approved estimates and track repair status."
       >
         <Button
           onClick={() => {
@@ -256,7 +269,7 @@ export function JobOrderTable() {
           disabled={customers.length === 0}
         >
           <Plus className="mr-2 h-4 w-4" />
-          New Job Order
+          New Job Order from Estimate
         </Button>
       </PageHeader>
 
@@ -282,6 +295,7 @@ export function JobOrderTable() {
         inventory={inventory}
         onSubmit={handleSubmit}
         isLoading={createMutation.isPending || updateMutation.isPending}
+        initialEstimateId={selectedJobOrder ? undefined : initialEstimateId}
       />
 
       <DeleteDialog
