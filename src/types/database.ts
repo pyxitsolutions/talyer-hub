@@ -1,4 +1,4 @@
-export type EstimateStatus = "draft" | "approved" | "rejected";
+export type EstimateStatus = "draft" | "approved" | "rejected" | "released";
 export type JobOrderStatus = "pending" | "ongoing" | "completed" | "released";
 export type PaymentStatus = "unpaid" | "partial" | "paid";
 export type PaymentMethod = "cash" | "card" | "bank_transfer" | "check" | "other";

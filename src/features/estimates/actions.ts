@@ -4,12 +4,18 @@ import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
 import { LIST_PAGE_SIZE } from "@/lib/constants";
+import {
+  assertNoActiveEstimateForVehicle,
+  findActiveEstimateForVehicle,
+  type ActiveEstimateSummary,
+} from "@/lib/estimates/active-estimate";
 import { createClient } from "@/lib/supabase/server";
 import type { PaginatedResult } from "@/lib/types/pagination";
 import { generateNumber } from "@/lib/utils";
 import type {
   Customer,
   InventoryItem,
+  JobOrder,
   RepairEstimate,
   RepairEstimateItem,
   Vehicle,
@@ -28,6 +34,7 @@ export interface EstimateWithRelations extends RepairEstimate {
   customers: Customer;
   vehicles: Vehicle;
   repair_estimate_items: RepairEstimateItem[];
+  job_orders?: Pick<JobOrder, "id" | "job_order_number" | "status"> | null;
 }
 
 export interface EstimateListItem extends Omit<
@@ -121,7 +128,20 @@ export async function getEstimate(
       return { success: false, error: "Estimate not found" };
     }
 
-    return { success: true, data: data as EstimateWithRelations };
+    const { data: jobOrder } = await supabase
+      .from("job_orders")
+      .select("id, job_order_number, status")
+      .eq("estimate_id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    return {
+      success: true,
+      data: {
+        ...(data as EstimateWithRelations),
+        job_orders: jobOrder,
+      },
+    };
   } catch (err) {
     return {
       success: false,
@@ -250,6 +270,16 @@ export async function createEstimate(
     const supabase = await createClient();
     const costs = calculateCosts(parsed.data.items, parsed.data.labor_cost);
 
+    const activeCheck = await assertNoActiveEstimateForVehicle(
+      supabase,
+      shopId,
+      parsed.data.customer_id,
+      parsed.data.vehicle_id
+    );
+    if (!activeCheck.ok) {
+      return { success: false, error: activeCheck.error };
+    }
+
     const { count, error: countError } = await supabase
       .from("repair_estimates")
       .select("*", { count: "exact", head: true })
@@ -284,7 +314,15 @@ export async function createEstimate(
       .single();
 
     if (error) {
-      return { success: false, error: error.message };
+      const isDuplicateActive =
+        error.code === "23505" &&
+        error.message.includes("idx_repair_estimates_one_active_per_vehicle");
+      return {
+        success: false,
+        error: isDuplicateActive
+          ? "This vehicle already has an open estimate. Finish the visit and release the unit before creating another estimate."
+          : error.message,
+      };
     }
 
     await insertEstimateItems(supabase, shopId, data.id, parsed.data.items);
@@ -329,6 +367,17 @@ export async function updateEstimate(
         success: false,
         error: "Only draft estimates can be edited",
       };
+    }
+
+    const activeCheck = await assertNoActiveEstimateForVehicle(
+      supabase,
+      shopId,
+      parsed.data.customer_id,
+      parsed.data.vehicle_id,
+      id
+    );
+    if (!activeCheck.ok) {
+      return { success: false, error: activeCheck.error };
     }
 
     const costs = calculateCosts(parsed.data.items, parsed.data.labor_cost);
@@ -424,12 +473,67 @@ export async function deleteEstimate(id: string): Promise<ActionResult> {
   }
 }
 
+export async function getActiveEstimateForVehicle(
+  customerId: string,
+  vehicleId: string,
+  excludeEstimateId?: string
+): Promise<ActionResult<ActiveEstimateSummary | null>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const active = await findActiveEstimateForVehicle(
+      supabase,
+      shopId,
+      customerId,
+      vehicleId,
+      excludeEstimateId
+    );
+
+    return { success: true, data: active };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Failed to check active estimate",
+    };
+  }
+}
+
 export async function approveEstimate(
   id: string
 ): Promise<ActionResult<RepairEstimate>> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+
+    const { data: draft, error: draftError } = await supabase
+      .from("repair_estimates")
+      .select("customer_id, vehicle_id")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .eq("status", "draft")
+      .single();
+
+    if (draftError || !draft) {
+      return {
+        success: false,
+        error: "Estimate not found or cannot be approved",
+      };
+    }
+
+    const activeCheck = await assertNoActiveEstimateForVehicle(
+      supabase,
+      shopId,
+      draft.customer_id,
+      draft.vehicle_id,
+      id
+    );
+    if (!activeCheck.ok) {
+      return { success: false, error: activeCheck.error };
+    }
 
     const { data, error } = await supabase
       .from("repair_estimates")

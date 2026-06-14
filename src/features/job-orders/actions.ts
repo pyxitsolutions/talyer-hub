@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
 import { LIST_PAGE_SIZE } from "@/lib/constants";
+import { markEstimateReleased } from "@/lib/estimates/active-estimate";
 import { createClient } from "@/lib/supabase/server";
 import type { PaginatedResult } from "@/lib/types/pagination";
 import {
@@ -1073,6 +1074,18 @@ export async function updateJobOrder(
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (parsed.data.status === "released" && existingJobOrder.estimate_id) {
+      await markEstimateReleased(
+        supabase,
+        shopId,
+        existingJobOrder.estimate_id
+      );
+      revalidatePath("/dashboard/estimates");
+      revalidatePath(
+        `/dashboard/estimates/${existingJobOrder.estimate_id}`
+      );
     }
 
     if (oldInventoryParts.length > 0) {

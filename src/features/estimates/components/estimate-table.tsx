@@ -288,7 +288,7 @@ export function EstimateTable() {
     <div className="space-y-6">
       <PageHeader
         title="Repair Estimates"
-        description="Create and manage repair cost estimates for customers."
+        description="One open estimate per vehicle. Finish and release the visit before starting another."
       >
         <Button
           onClick={() => {

@@ -57,6 +57,7 @@ export const ESTIMATE_STATUSES = [
   { value: "draft", label: "Draft" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
+  { value: "released", label: "Released" },
 ] as const;
 
 export const JOB_ORDER_STATUSES = [

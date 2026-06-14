@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 
@@ -22,6 +24,7 @@ import {
   estimateFormSchema,
   type EstimateFormValues,
 } from "../schemas";
+import { getActiveEstimateForVehicle } from "../actions";
 
 interface EstimateFormProps {
   estimate?: RepairEstimate & {
@@ -90,8 +93,26 @@ export function EstimateForm({
   });
 
   const customerId = useWatch({ control, name: "customer_id" });
+  const vehicleId = useWatch({ control, name: "vehicle_id" });
   const items = useWatch({ control, name: "items" });
   const laborCost = useWatch({ control, name: "labor_cost" });
+
+  const { data: activeEstimateResult } = useQuery({
+    queryKey: ["active-estimate", customerId, vehicleId, estimate?.id],
+    queryFn: async () => {
+      const result = await getActiveEstimateForVehicle(
+        customerId,
+        vehicleId,
+        estimate?.id
+      );
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!customerId && !!vehicleId && !estimate,
+  });
+
+  const activeEstimate = activeEstimateResult ?? null;
+  const hasBlockingEstimate = !estimate && !!activeEstimate;
 
   useEffect(() => {
     if (customerId) {
@@ -188,6 +209,19 @@ export function EstimateForm({
           {errors.vehicle_id && (
             <p className="text-sm text-destructive">
               {errors.vehicle_id.message}
+            </p>
+          )}
+          {hasBlockingEstimate && activeEstimate && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              This vehicle already has an open estimate (
+              <Link
+                href={`/dashboard/estimates/${activeEstimate.id}`}
+                className="font-medium underline underline-offset-4"
+              >
+                {activeEstimate.estimate_number}
+              </Link>
+              ). Release the unit on the current job order before creating a new
+              estimate.
             </p>
           )}
         </div>
@@ -361,7 +395,7 @@ export function EstimateForm({
             Cancel
           </Button>
         )}
-        <Button type="submit" disabled={isLoading}>
+        <Button type="submit" disabled={isLoading || hasBlockingEstimate}>
           {isLoading
             ? "Saving..."
             : estimate

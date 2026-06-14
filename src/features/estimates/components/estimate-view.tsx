@@ -157,6 +157,8 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
     return <p className="text-destructive">Estimate not found.</p>;
   }
 
+  const linkedJobOrder = estimate.job_orders;
+
   return (
     <>
       <div className="space-y-6 print:hidden">
@@ -200,7 +202,7 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
                 </Button>
               </>
             )}
-            {estimate.status === "approved" && (
+            {estimate.status === "approved" && !linkedJobOrder && (
               <Button
                 onClick={() => convertMutation.mutate()}
                 disabled={
@@ -217,7 +219,34 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
         </PageHeader>
       </div>
 
-      {estimate.status === "approved" && (
+      {estimate.status === "released" && (
+        <div className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-4 py-3 text-sm text-violet-900 dark:text-violet-100">
+          <strong>Visit complete.</strong> This estimate is released. You can
+          create a new estimate for this vehicle after logging a fresh unit in
+          Units Received.
+        </div>
+      )}
+
+      {linkedJobOrder && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Linked Job Order</CardDescription>
+            <CardTitle className="text-base">
+              <Link
+                href={`/dashboard/job-orders/${linkedJobOrder.id}`}
+                className="text-primary hover:underline"
+              >
+                {linkedJobOrder.job_order_number}
+              </Link>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StatusBadge status={linkedJobOrder.status} />
+          </CardContent>
+        </Card>
+      )}
+
+      {estimate.status === "approved" && !linkedJobOrder && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Create Job Order</CardTitle>
