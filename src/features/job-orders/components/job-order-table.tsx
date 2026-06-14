@@ -12,8 +12,10 @@ import { DataTable } from "@/components/shared/data-table";
 import { DeleteDialog } from "@/components/shared/delete-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
+import { TablePagination } from "@/components/shared/table-pagination";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,19 +29,20 @@ import {
   deleteJobOrder,
   getCustomersForSelect,
   getInventoryForSelect,
+  getJobOrder,
   getJobOrders,
   updateJobOrder,
-  type JobOrderWithRelations,
+  type JobOrderListItem,
 } from "../actions";
 import type { JobOrderFormValues } from "../schemas";
 import { JobOrderDialog } from "./job-order-dialog";
 
-function getLinkedInvoiceNumber(jobOrder: JobOrderWithRelations): string | null {
+function getLinkedInvoiceNumber(jobOrder: JobOrderListItem): string | null {
   return jobOrder.invoices?.[0]?.invoice_number ?? null;
 }
 
 function getJobOrderDeleteBlockReason(
-  jobOrder: JobOrderWithRelations
+  jobOrder: JobOrderListItem
 ): string | null {
   if (jobOrder.status === "released") {
     return "Cannot delete: this job order is already released.";
@@ -59,10 +62,11 @@ export function JobOrderTable() {
   const queryClient = useQueryClient();
   const invalidateDashboard = useInvalidateDashboard();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedJobOrder, setSelectedJobOrder] = useState<
-    JobOrderWithRelations | undefined
+    JobOrderListItem | undefined
   >();
 
   useEffect(() => {
@@ -72,14 +76,21 @@ export function JobOrderTable() {
     }
   }, [initialEstimateId]);
 
-  const { data: jobOrders = [], isLoading } = useQuery({
-    queryKey: ["job-orders", search],
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const { data: jobOrdersResult, isLoading } = useQuery({
+    queryKey: ["job-orders", search, page],
     queryFn: async () => {
-      const result = await getJobOrders(search);
+      const result = await getJobOrders(search, page, LIST_PAGE_SIZE);
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
   });
+
+  const jobOrders = jobOrdersResult?.items ?? [];
+  const totalJobOrders = jobOrdersResult?.total ?? 0;
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers-select"],
@@ -88,6 +99,8 @@ export function JobOrderTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: inventory = [] } = useQuery({
@@ -97,6 +110,18 @@ export function JobOrderTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: jobOrderForEdit, isLoading: editLoading } = useQuery({
+    queryKey: ["job-order", selectedJobOrder?.id],
+    queryFn: async () => {
+      const result = await getJobOrder(selectedJobOrder!.id);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: dialogOpen && !!selectedJobOrder?.id,
   });
 
   const createMutation = useMutation({
@@ -159,7 +184,7 @@ export function JobOrderTable() {
     }
   };
 
-  const columns = useMemo<ColumnDef<JobOrderWithRelations>[]>(
+  const columns = useMemo<ColumnDef<JobOrderListItem>[]>(
     () => [
       {
         accessorKey: "job_order_number",
@@ -266,7 +291,7 @@ export function JobOrderTable() {
             setSelectedJobOrder(undefined);
             setDialogOpen(true);
           }}
-          disabled={customers.length === 0}
+          disabled={false}
         >
           <Plus className="mr-2 h-4 w-4" />
           New Job Order from Estimate
@@ -287,15 +312,23 @@ export function JobOrderTable() {
         }
       />
 
+      <TablePagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={totalJobOrders}
+        onPageChange={setPage}
+      />
+
       <JobOrderDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        jobOrder={selectedJobOrder}
+        jobOrder={selectedJobOrder ? jobOrderForEdit : undefined}
         customers={customers}
         inventory={inventory}
         onSubmit={handleSubmit}
         isLoading={createMutation.isPending || updateMutation.isPending}
         initialEstimateId={selectedJobOrder ? undefined : initialEstimateId}
+        editLoading={!!selectedJobOrder && editLoading}
       />
 
       <DeleteDialog

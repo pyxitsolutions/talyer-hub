@@ -29,6 +29,7 @@ interface InvoiceDialogProps {
   initialJobOrderId?: string;
   onSubmit: (values: InvoiceFormValues) => Promise<void>;
   isLoading?: boolean;
+  editLoading?: boolean;
 }
 
 export function InvoiceDialog({
@@ -42,6 +43,7 @@ export function InvoiceDialog({
   initialJobOrderId,
   onSubmit,
   isLoading = false,
+  editLoading = false,
 }: InvoiceDialogProps) {
   const handleSubmit = async (values: InvoiceFormValues) => {
     await onSubmit(values);
@@ -59,6 +61,11 @@ export function InvoiceDialog({
               : "Create a new billing invoice. Parts linked to inventory will be deducted automatically."}
           </DialogDescription>
         </DialogHeader>
+        {editLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Loading invoice...
+          </p>
+        ) : (
         <InvoiceForm
           key={invoice?.id ?? initialJobOrderId ?? "new"}
           invoice={invoice}
@@ -71,6 +78,7 @@ export function InvoiceDialog({
           onCancel={() => onOpenChange(false)}
           isLoading={isLoading}
         />
+        )}
       </DialogContent>
     </Dialog>
   );

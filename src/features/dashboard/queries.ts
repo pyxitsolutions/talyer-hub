@@ -1,7 +1,6 @@
 import { resolveShopId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { UNIT_CATEGORIES } from "@/lib/constants";
-import { syncAllPaidInvoicesToSales } from "@/lib/sales/sync-from-invoice";
 import type { DashboardStats, UnitCategory } from "@/types/database";
 
 export interface TrendDataPoint {
@@ -84,7 +83,6 @@ async function requireShopId(): Promise<string> {
 
 async function getDashboardStats(shopId: string): Promise<DashboardStats> {
   const supabase = await createClient();
-  await syncAllPaidInvoicesToSales(supabase, shopId);
   const today = getTodayDate();
   const monthStart = getMonthStart();
   const monthEnd = getMonthEnd();
@@ -328,8 +326,6 @@ export async function loadDashboardData(): Promise<
 > {
   try {
     const shopId = await requireShopId();
-    const supabase = await createClient();
-    await syncAllPaidInvoicesToSales(supabase, shopId);
 
     const [
       stats,

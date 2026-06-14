@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
+import type { PaginatedResult } from "@/lib/types/pagination";
 import { generateNumber } from "@/lib/utils";
 import type {
   Customer,
@@ -28,6 +30,14 @@ export interface EstimateWithRelations extends RepairEstimate {
   repair_estimate_items: RepairEstimateItem[];
 }
 
+export interface EstimateListItem extends Omit<
+  RepairEstimate,
+  "customers" | "vehicles" | "repair_estimate_items"
+> {
+  customers?: Pick<Customer, "full_name" | "customer_number"> | null;
+  vehicles?: Pick<Vehicle, "plate_number" | "brand" | "model"> | null;
+}
+
 function calculateCosts(items: EstimateItemValues[], laborCost: number) {
   const partsCost = items.reduce(
     (sum, item) => sum + item.quantity * item.unit_price,
@@ -41,17 +51,27 @@ function calculateCosts(items: EstimateItemValues[], laborCost: number) {
 }
 
 export async function getEstimates(
-  search?: string
-): Promise<ActionResult<EstimateWithRelations[]>> {
+  search?: string,
+  page = 1,
+  pageSize = LIST_PAGE_SIZE
+): Promise<ActionResult<PaginatedResult<EstimateListItem>>> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+    const safePage = Math.max(1, page);
+    const safePageSize = Math.max(1, Math.min(pageSize, 100));
+    const from = (safePage - 1) * safePageSize;
+    const to = from + safePageSize - 1;
 
     let query = supabase
       .from("repair_estimates")
-      .select("*, customers(*), vehicles(*), repair_estimate_items(*)")
+      .select(
+        "id, shop_id, estimate_number, estimate_date, customer_id, vehicle_id, chassis_number, engine_number, problem_description, repair_description, recommendation, technician_name, labor_cost, parts_cost, total_cost, status, created_at, updated_at, customers(full_name, customer_number), vehicles(plate_number, brand, model)",
+        { count: "exact" }
+      )
       .eq("shop_id", shopId)
-      .order("estimate_date", { ascending: false });
+      .order("estimate_date", { ascending: false })
+      .range(from, to);
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
@@ -60,13 +80,21 @@ export async function getEstimates(
       );
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: (data ?? []) as EstimateWithRelations[] };
+    return {
+      success: true,
+      data: {
+        items: (data ?? []) as unknown as EstimateListItem[],
+        total: count ?? 0,
+        page: safePage,
+        pageSize: safePageSize,
+      },
+    };
   } catch (err) {
     return {
       success: false,

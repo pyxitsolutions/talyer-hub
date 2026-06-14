@@ -32,9 +32,9 @@ export function DashboardView() {
       return result.data;
     },
     enabled: !!shopId,
-    staleTime: 0,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    staleTime: 3 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   return (

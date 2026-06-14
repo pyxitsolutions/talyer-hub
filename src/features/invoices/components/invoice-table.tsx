@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
@@ -11,8 +11,10 @@ import { DataTable } from "@/components/shared/data-table";
 import { DeleteDialog } from "@/components/shared/delete-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
+import { TablePagination } from "@/components/shared/table-pagination";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,22 +30,22 @@ import {
 } from "@/components/ui/select";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { Invoice } from "@/types/database";
 import {
   createInvoice,
   deleteInvoice,
   getCustomersForSelect,
   getInventoryForSelect,
+  getInvoice,
   getInvoices,
   getJobOrdersForSelect,
   getVehiclesForSelect,
   updateInvoice,
-  type InvoiceWithRelations,
+  type InvoiceListItem,
 } from "../actions";
 import type { InvoiceFormValues } from "../schemas";
 import { InvoiceDialog } from "./invoice-dialog";
 
-function getInvoiceDeleteBlockReason(invoice: InvoiceWithRelations): string | null {
+function getInvoiceDeleteBlockReason(invoice: InvoiceListItem): string | null {
   if (invoice.job_orders?.status === "released") {
     return `Cannot delete: job order ${invoice.job_orders.job_order_number} is already released.`;
   }
@@ -55,22 +57,30 @@ export function InvoiceTable() {
   const queryClient = useQueryClient();
   const invalidateDashboard = useInvalidateDashboard();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<
-    (Invoice & { invoice_items?: { inventory_item_id: string | null; part_name: string; quantity: number; unit_price: number }[] }) | undefined
+    InvoiceListItem | undefined
   >();
   const [selectedJobOrderId, setSelectedJobOrderId] = useState("");
   const [prefillJobOrderId, setPrefillJobOrderId] = useState<string | undefined>();
 
-  const { data: invoices = [], isLoading } = useQuery({
-    queryKey: ["invoices", search],
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const { data: invoicesResult, isLoading } = useQuery({
+    queryKey: ["invoices", search, page],
     queryFn: async () => {
-      const result = await getInvoices(search);
+      const result = await getInvoices(search, page, LIST_PAGE_SIZE);
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
   });
+
+  const invoices = invoicesResult?.items ?? [];
+  const totalInvoices = invoicesResult?.total ?? 0;
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers-select"],
@@ -79,6 +89,8 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: vehicles = [] } = useQuery({
@@ -88,6 +100,8 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: inventory = [] } = useQuery({
@@ -97,6 +111,8 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: jobOrders = [] } = useQuery({
@@ -106,6 +122,17 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    staleTime: 60 * 1000,
+  });
+
+  const { data: invoiceForEdit, isLoading: editLoading } = useQuery({
+    queryKey: ["invoice", selectedInvoice?.id, "edit"],
+    queryFn: async () => {
+      const result = await getInvoice(selectedInvoice!.id);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: dialogOpen && !!selectedInvoice?.id,
   });
 
   const createMutation = useMutation({
@@ -310,10 +337,17 @@ export function InvoiceTable() {
         emptyMessage={isLoading ? "Loading invoices..." : "No invoices found."}
       />
 
+      <TablePagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={totalInvoices}
+        onPageChange={setPage}
+      />
+
       <InvoiceDialog
         open={dialogOpen}
         onOpenChange={handleDialogOpenChange}
-        invoice={selectedInvoice}
+        invoice={selectedInvoice ? invoiceForEdit : undefined}
         jobOrders={jobOrders}
         initialJobOrderId={prefillJobOrderId}
         customers={customers}
@@ -321,6 +355,7 @@ export function InvoiceTable() {
         inventory={inventory}
         onSubmit={handleSubmit}
         isLoading={createMutation.isPending || updateMutation.isPending}
+        editLoading={!!selectedInvoice && editLoading}
       />
 
       <DeleteDialog

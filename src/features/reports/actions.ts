@@ -1,7 +1,6 @@
 "use server";
 
 import { getShopId } from "@/lib/auth";
-import { syncAllPaidInvoicesToSales } from "@/lib/sales/sync-from-invoice";
 import { EXPENSE_CATEGORIES, UNIT_CATEGORIES } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { ExpenseCategory, SaleType, UnitCategory } from "@/types/database";
@@ -69,8 +68,6 @@ export async function generateReport(
 
     switch (reportType) {
       case "sales": {
-        await syncAllPaidInvoicesToSales(supabase, shopId);
-
         const { data, error } = await supabase
           .from("sales_records")
           .select("sale_date, sale_type, description, amount")

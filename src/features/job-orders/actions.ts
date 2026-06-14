@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
+import type { PaginatedResult } from "@/lib/types/pagination";
 import {
   buildLastClosedAtByVehicle,
   getUnitLogCutoffDate,
@@ -33,6 +35,16 @@ export interface JobOrderWithRelations extends Omit<JobOrder, "repair_estimates"
   vehicles: Vehicle;
   job_order_parts: JobOrderPart[];
   repair_estimates?: RepairEstimate | null;
+  invoices?: { invoice_number: string }[] | null;
+}
+
+export interface JobOrderListItem extends Omit<
+  JobOrder,
+  "repair_estimates" | "customers" | "vehicles"
+> {
+  customers?: Pick<Customer, "full_name"> | null;
+  vehicles?: Pick<Vehicle, "plate_number" | "brand" | "model"> | null;
+  repair_estimates?: Pick<RepairEstimate, "estimate_number"> | null;
   invoices?: { invoice_number: string }[] | null;
 }
 
@@ -429,19 +441,27 @@ async function insertJobOrderParts(
 }
 
 export async function getJobOrders(
-  search?: string
-): Promise<ActionResult<JobOrderWithRelations[]>> {
+  search?: string,
+  page = 1,
+  pageSize = LIST_PAGE_SIZE
+): Promise<ActionResult<PaginatedResult<JobOrderListItem>>> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+    const safePage = Math.max(1, page);
+    const safePageSize = Math.max(1, Math.min(pageSize, 100));
+    const from = (safePage - 1) * safePageSize;
+    const to = from + safePageSize - 1;
 
     let query = supabase
       .from("job_orders")
       .select(
-        "*, customers(*), vehicles(*), job_order_parts(*), repair_estimates(estimate_number), invoices(invoice_number)"
+        "id, shop_id, job_order_number, estimate_id, customer_id, vehicle_id, assigned_technician, date_started, date_completed, status, repair_description, created_at, updated_at, customers(full_name), vehicles(plate_number, brand, model), repair_estimates(estimate_number), invoices(invoice_number)",
+        { count: "exact" }
       )
       .eq("shop_id", shopId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(from, to);
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
@@ -450,13 +470,21 @@ export async function getJobOrders(
       );
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: (data ?? []) as JobOrderWithRelations[] };
+    return {
+      success: true,
+      data: {
+        items: (data ?? []) as unknown as JobOrderListItem[],
+        total: count ?? 0,
+        page: safePage,
+        pageSize: safePageSize,
+      },
+    };
   } catch (err) {
     return {
       success: false,

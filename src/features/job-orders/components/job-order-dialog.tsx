@@ -34,6 +34,7 @@ interface JobOrderDialogProps {
   onSubmit: (values: JobOrderFormValues) => Promise<void>;
   isLoading?: boolean;
   initialEstimateId?: string;
+  editLoading?: boolean;
 }
 
 export function JobOrderDialog({
@@ -45,6 +46,7 @@ export function JobOrderDialog({
   onSubmit,
   isLoading = false,
   initialEstimateId,
+  editLoading = false,
 }: JobOrderDialogProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [canRelease, setCanRelease] = useState(true);
@@ -98,6 +100,11 @@ export function JobOrderDialog({
               : "Select an approved estimate, review the details, then save. A current unit log for that vehicle is required."}
           </DialogDescription>
         </DialogHeader>
+        {editLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Loading job order...
+          </p>
+        ) : (
         <JobOrderForm
           jobOrder={jobOrder}
           customers={customers}
@@ -110,7 +117,9 @@ export function JobOrderDialog({
           canRelease={canRelease}
           releaseBlockMessage={releaseBlockMessage}
           initialEstimateId={initialEstimateId}
+          active={open}
         />
+        )}
       </DialogContent>
     </Dialog>
   );

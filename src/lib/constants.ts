@@ -36,6 +36,9 @@ export const UNIT_CATEGORIES: { value: UnitCategory; label: string }[] = [
 /** Unit logs older than this cannot be linked to a new job order. */
 export const UNIT_LOG_JOB_ORDER_MAX_AGE_DAYS = 30;
 
+/** Default page size for list tables (job orders, invoices, estimates). */
+export const LIST_PAGE_SIZE = 50;
+
 export const EXPENSE_CATEGORIES: { value: ExpenseCategory; label: string }[] = [
   { value: "shop_expenses", label: "Shop Expenses" },
   { value: "food", label: "Food" },

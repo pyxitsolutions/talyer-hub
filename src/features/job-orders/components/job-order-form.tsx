@@ -55,6 +55,7 @@ interface JobOrderFormProps {
   canRelease?: boolean;
   releaseBlockMessage?: string;
   initialEstimateId?: string;
+  active?: boolean;
 }
 
 function StepHeading({
@@ -93,6 +94,7 @@ export function JobOrderForm({
   canRelease = true,
   releaseBlockMessage,
   initialEstimateId,
+  active = true,
 }: JobOrderFormProps) {
   const isCreate = !jobOrder;
 
@@ -142,7 +144,7 @@ export function JobOrderForm({
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    enabled: isCreate,
+    enabled: isCreate && active,
   });
 
   const { data: availableUnits = [] } = useQuery({
@@ -152,7 +154,7 @@ export function JobOrderForm({
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    enabled: !!vehicleId && isCreate,
+    enabled: !!vehicleId && isCreate && active,
   });
 
   const selectedEstimate = approvedEstimates.find(

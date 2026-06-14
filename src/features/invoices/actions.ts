@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { syncSalesFromInvoice } from "@/lib/sales/sync-from-invoice";
 import { createClient } from "@/lib/supabase/server";
+import type { PaginatedResult } from "@/lib/types/pagination";
 import { generateNumber } from "@/lib/utils";
 import type {
   Customer,
@@ -30,6 +32,15 @@ export interface InvoiceWithRelations extends Invoice {
   customers: Customer;
   vehicles: Vehicle;
   invoice_items: InvoiceItem[];
+  job_orders?: Pick<JobOrder, "status" | "job_order_number"> | null;
+}
+
+export interface InvoiceListItem extends Omit<
+  Invoice,
+  "customers" | "vehicles" | "invoice_items" | "job_orders"
+> {
+  customers?: Pick<Customer, "full_name"> | null;
+  vehicles?: Pick<Vehicle, "plate_number" | "brand" | "model"> | null;
   job_orders?: Pick<JobOrder, "status" | "job_order_number"> | null;
 }
 
@@ -186,19 +197,27 @@ async function deductInventoryForInvoice(
 }
 
 export async function getInvoices(
-  search?: string
-): Promise<ActionResult<InvoiceWithRelations[]>> {
+  search?: string,
+  page = 1,
+  pageSize = LIST_PAGE_SIZE
+): Promise<ActionResult<PaginatedResult<InvoiceListItem>>> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+    const safePage = Math.max(1, page);
+    const safePageSize = Math.max(1, Math.min(pageSize, 100));
+    const from = (safePage - 1) * safePageSize;
+    const to = from + safePageSize - 1;
 
     let query = supabase
       .from("invoices")
       .select(
-        "*, customers(*), vehicles(*), invoice_items(*), job_orders(status, job_order_number)"
+        "id, shop_id, invoice_number, job_order_id, customer_id, vehicle_id, invoice_date, technician_name, labor_cost, parts_cost, total_amount, amount_paid, payment_status, payment_method, verification_code, created_at, updated_at, customers(full_name), vehicles(plate_number, brand, model), job_orders(status, job_order_number)",
+        { count: "exact" }
       )
       .eq("shop_id", shopId)
-      .order("invoice_date", { ascending: false });
+      .order("invoice_date", { ascending: false })
+      .range(from, to);
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
@@ -207,13 +226,21 @@ export async function getInvoices(
       );
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: (data ?? []) as InvoiceWithRelations[] };
+    return {
+      success: true,
+      data: {
+        items: (data ?? []) as unknown as InvoiceListItem[],
+        total: count ?? 0,
+        page: safePage,
+        pageSize: safePageSize,
+      },
+    };
   } catch (err) {
     return {
       success: false,

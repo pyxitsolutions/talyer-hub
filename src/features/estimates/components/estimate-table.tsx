@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
@@ -19,8 +19,10 @@ import { DataTable } from "@/components/shared/data-table";
 import { DeleteDialog } from "@/components/shared/delete-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
+import { TablePagination } from "@/components/shared/table-pagination";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,11 +35,12 @@ import {
   createEstimate,
   deleteEstimate,
   getCustomersForSelect,
+  getEstimate,
   getEstimates,
   getInventoryForSelect,
   rejectEstimate,
   updateEstimate,
-  type EstimateWithRelations,
+  type EstimateListItem,
 } from "../actions";
 import type { EstimateFormValues } from "../schemas";
 import { EstimateDialog } from "./estimate-dialog";
@@ -45,20 +48,28 @@ import { EstimateDialog } from "./estimate-dialog";
 export function EstimateTable() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedEstimate, setSelectedEstimate] = useState<
-    EstimateWithRelations | undefined
+    EstimateListItem | undefined
   >();
 
-  const { data: estimates = [], isLoading } = useQuery({
-    queryKey: ["estimates", search],
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const { data: estimatesResult, isLoading } = useQuery({
+    queryKey: ["estimates", search, page],
     queryFn: async () => {
-      const result = await getEstimates(search);
+      const result = await getEstimates(search, page, LIST_PAGE_SIZE);
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
   });
+
+  const estimates = estimatesResult?.items ?? [];
+  const totalEstimates = estimatesResult?.total ?? 0;
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers-select"],
@@ -67,6 +78,8 @@ export function EstimateTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: inventory = [] } = useQuery({
@@ -76,6 +89,18 @@ export function EstimateTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: estimateForEdit, isLoading: editLoading } = useQuery({
+    queryKey: ["estimate", selectedEstimate?.id, "edit"],
+    queryFn: async () => {
+      const result = await getEstimate(selectedEstimate!.id);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: dialogOpen && !!selectedEstimate?.id,
   });
 
   const createMutation = useMutation({
@@ -156,7 +181,7 @@ export function EstimateTable() {
     }
   };
 
-  const columns = useMemo<ColumnDef<EstimateWithRelations>[]>(
+  const columns = useMemo<ColumnDef<EstimateListItem>[]>(
     () => [
       {
         accessorKey: "estimate_number",
@@ -270,7 +295,7 @@ export function EstimateTable() {
             setSelectedEstimate(undefined);
             setDialogOpen(true);
           }}
-          disabled={customers.length === 0}
+          disabled={false}
         >
           <Plus className="mr-2 h-4 w-4" />
           New Estimate
@@ -289,14 +314,22 @@ export function EstimateTable() {
         emptyMessage={isLoading ? "Loading estimates..." : "No estimates found."}
       />
 
+      <TablePagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={totalEstimates}
+        onPageChange={setPage}
+      />
+
       <EstimateDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        estimate={selectedEstimate}
+        estimate={selectedEstimate ? estimateForEdit : undefined}
         customers={customers}
         inventory={inventory}
         onSubmit={handleSubmit}
         isLoading={createMutation.isPending || updateMutation.isPending}
+        editLoading={!!selectedEstimate && editLoading}
       />
 
       <DeleteDialog

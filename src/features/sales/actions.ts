@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
-import { syncAllPaidInvoicesToSales } from "@/lib/sales/sync-from-invoice";
 import { createClient } from "@/lib/supabase/server";
 import type { SalesRecord, SaleType } from "@/types/database";
 import { salesFormSchema, type SalesFormValues } from "./schemas";
@@ -98,8 +97,6 @@ export async function getSalesRecords(
     const shopId = await getShopId();
     const supabase = await createClient();
 
-    await syncAllPaidInvoicesToSales(supabase, shopId);
-
     let query = supabase
       .from("sales_records")
       .select("*")
@@ -130,8 +127,6 @@ export async function getSalesAnalytics(): Promise<ActionResult<SalesAnalytics>>
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
-
-    await syncAllPaidInvoicesToSales(supabase, shopId);
 
     const yearlyRange = getDateRange("yearly");
     const { data, error } = await supabase

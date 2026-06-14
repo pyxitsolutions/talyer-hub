@@ -32,6 +32,7 @@ interface EstimateDialogProps {
   >[];
   onSubmit: (values: EstimateFormValues) => Promise<void>;
   isLoading?: boolean;
+  editLoading?: boolean;
 }
 
 export function EstimateDialog({
@@ -42,6 +43,7 @@ export function EstimateDialog({
   inventory,
   onSubmit,
   isLoading = false,
+  editLoading = false,
 }: EstimateDialogProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
@@ -76,6 +78,11 @@ export function EstimateDialog({
               : "Create a repair estimate with parts and labor costs."}
           </DialogDescription>
         </DialogHeader>
+        {editLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Loading estimate...
+          </p>
+        ) : (
         <EstimateForm
           estimate={estimate}
           customers={customers}
@@ -86,6 +93,7 @@ export function EstimateDialog({
           onCancel={() => onOpenChange(false)}
           isLoading={isLoading}
         />
+        )}
       </DialogContent>
     </Dialog>
   );
