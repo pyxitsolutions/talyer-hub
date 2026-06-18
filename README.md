@@ -45,7 +45,7 @@ npm install
 cp .env.example .env.local
 # Edit .env.local with your Supabase credentials
 
-# Run Supabase migrations (see DEPLOYMENT.md)
+# Run supabase/complete_schema.sql in Supabase SQL Editor (see DEPLOYMENT.md)
 
 # Start development server
 npm run dev
@@ -114,10 +114,8 @@ src/
     └── database.ts          # TypeScript types
 
 supabase/
-├── migrations/
-│   ├── 001_initial_schema.sql
-│   └── 002_rls_policies.sql
-└── seed.sql
+├── complete_schema.sql   # Full DB setup (new project)
+└── reset.sql             # Clear business data or full wipe
 ```
 
 ## Database Schema

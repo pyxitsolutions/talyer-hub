@@ -9,7 +9,6 @@
     "lint": "eslint",
     "db:reset": "node scripts/reset-database.mjs",
     "db:fresh-start": "node scripts/reset-database.mjs",
-    "db:complete-schema": "node scripts/build-complete-migration.mjs",
     "favicon": "node scripts/generate-favicon.mjs"
   },
   "dependencies": {
