@@ -15,31 +15,30 @@ Production deployment guide for TalyerHub (SaaS-ready, multi-tenant auto care sh
 1. Create a new Supabase project at [supabase.com/dashboard](https://supabase.com/dashboard)
 2. Note your **Project URL**, **anon key**, and **service_role key** from Settings → API
 
-### Run Database Migrations
+### Database setup
 
-**Option A — One file (recommended for new projects)**
-
-In Supabase → SQL Editor, run the entire file:
+In Supabase → SQL Editor, run the entire file on a **new empty** project:
 
 `supabase/complete_schema.sql`
 
-This combines migrations `001` through `018`. Use this only on a **new empty** Supabase project.
+Do **not** run it twice on the same database (duplicate errors).
 
-Regenerate after migration changes:
+### Reset / wipe data
+
+`supabase/reset.sql` — run in SQL Editor:
+
+| Block | What it does |
+|-------|----------------|
+| **Block 1** (highlight only) | Clears business data — keeps shops & login accounts |
+| **Block 2** (highlight only) | Full wipe — all shops, users, data; re-seeds roles |
+
+For full reset **with a new super admin login**, prefer:
 
 ```bash
-node scripts/build-complete-migration.mjs
+npm run db:fresh-start
 ```
 
-**Option B — Individual files (existing projects / incremental updates)**
-
-Run these in order in the SQL Editor:
-
-1. `supabase/migrations/001_initial_schema.sql` through `018_shop_plan.sql`
-
-Do **not** run both Option A and Option B on the same database.
-
-Optional demo data: `supabase/seed.sql` (development only — not for production)
+(requires `SUPABASE_SERVICE_ROLE_KEY` and optional `SUPER_ADMIN_*` in `.env.local`)
 
 ### Enable Authentication
 
@@ -151,7 +150,7 @@ For **each** of develop, staging, uat, and prod:
 3. Auth → Email ON, **Confirm email OFF**  
 4. Set **Site URL** to that environment’s app URL  
 5. Promote super admin (SQL in section 1)  
-6. Optional: run `seed.sql` on **develop/staging/uat only** — never on production  
+6. Do not run demo seed SQL on production UAT/prod unless you add your own test data manually  
 
 ### Vercel (recommended: one project per environment)
 
@@ -253,7 +252,7 @@ Assign roles via the `user_roles` table after creating team members.
 
 ## 8. Post-Deployment Checklist
 
-- [ ] Run `supabase/complete_schema.sql` (new project) **or** migrations 001–018 individually
+- [ ] Run `supabase/complete_schema.sql` on a new Supabase project
 - [ ] Configure auth redirect URLs
 - [ ] **Confirm email = OFF** in Supabase (admin approval handles access)
 - [ ] Set environment variables on host
@@ -278,4 +277,4 @@ Assign roles via the `user_roles` table after creating team members.
 
 ## Support
 
-For schema changes, add new migration files under `supabase/migrations/` and run them in order. Never modify production schema directly without a migration.
+For schema changes, edit `supabase/complete_schema.sql` for new projects, or run targeted `ALTER` SQL on existing databases. Never modify production schema without a backup.

@@ -2,7 +2,7 @@ export function mapStorageError(message: string): string {
   const lower = message.toLowerCase();
 
   if (lower.includes("bucket not found")) {
-    return "Logo storage is not set up yet. Run supabase/migrations/004_shop_logos_storage.sql in the Supabase SQL Editor, then try again.";
+    return "Logo storage is not set up yet. Run supabase/complete_schema.sql on a new Supabase project, then try again.";
   }
 
   if (
