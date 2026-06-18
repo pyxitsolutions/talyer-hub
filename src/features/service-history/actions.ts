@@ -1,6 +1,6 @@
 "use server";
 
-import { getShopId } from "@/lib/auth";
+import { getProShopId } from "@/lib/auth/plan-guard";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult<T = void> =
@@ -26,7 +26,7 @@ export async function searchServiceHistory(
   search?: string
 ): Promise<ActionResult<ServiceHistoryRecord[]>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const [jobOrdersResult, invoicesResult] = await Promise.all([

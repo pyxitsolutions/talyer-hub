@@ -35,7 +35,6 @@ import {
   approveEstimate,
   createEstimate,
   deleteEstimate,
-  getCustomersForSelect,
   getEstimate,
   getEstimates,
   getInventoryForSelect,
@@ -44,6 +43,7 @@ import {
   updateEstimate,
   type EstimateListItem,
 } from "../actions";
+import { getCustomersForSelect } from "@/features/customers/actions";
 import type { EstimateFormValues } from "../schemas";
 import { EstimateDialog } from "./estimate-dialog";
 
@@ -167,6 +167,9 @@ export function EstimateTable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
       toast.success("Estimate approved");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -191,6 +194,9 @@ export function EstimateTable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
       toast.success("Estimate moved back to draft");
     },
     onError: (error: Error) => toast.error(error.message),

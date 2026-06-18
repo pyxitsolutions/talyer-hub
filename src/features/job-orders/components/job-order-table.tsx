@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -24,10 +24,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { formatDate } from "@/lib/utils";
+import type { EstimateWithRelations } from "@/features/estimates/actions";
+import { getCustomersForSelect } from "@/features/customers/actions";
 import {
   createJobOrder,
   deleteJobOrder,
-  getCustomersForSelect,
   getInventoryForSelect,
   getJobOrder,
   getJobOrders,
@@ -68,13 +69,23 @@ export function JobOrderTable() {
   const [selectedJobOrder, setSelectedJobOrder] = useState<
     JobOrderListItem | undefined
   >();
+  const [createFormKey, setCreateFormKey] = useState(0);
+
+  const openCreateDialog = useCallback(() => {
+    setSelectedJobOrder(undefined);
+    setCreateFormKey((key) => key + 1);
+    queryClient.invalidateQueries({
+      queryKey: ["approved-estimates-for-job-order"],
+    });
+    queryClient.invalidateQueries({ queryKey: ["units-for-job-order"] });
+    setDialogOpen(true);
+  }, [queryClient]);
 
   useEffect(() => {
     if (initialEstimateId) {
-      setSelectedJobOrder(undefined);
-      setDialogOpen(true);
+      openCreateDialog();
     }
-  }, [initialEstimateId]);
+  }, [initialEstimateId, openCreateDialog]);
 
   useEffect(() => {
     setPage(1);
@@ -92,7 +103,11 @@ export function JobOrderTable() {
   const jobOrders = jobOrdersResult?.items ?? [];
   const totalJobOrders = jobOrdersResult?.total ?? 0;
 
-  const { data: customers = [] } = useQuery({
+  const {
+    data: customers = [],
+    isLoading: customersLoading,
+    isFetching: customersFetching,
+  } = useQuery({
     queryKey: ["customers-select"],
     queryFn: async () => {
       const result = await getCustomersForSelect();
@@ -103,7 +118,11 @@ export function JobOrderTable() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: inventory = [] } = useQuery({
+  const {
+    data: inventory = [],
+    isLoading: inventoryLoading,
+    isFetching: inventoryFetching,
+  } = useQuery({
     queryKey: ["inventory-select"],
     queryFn: async () => {
       const result = await getInventoryForSelect();
@@ -113,6 +132,13 @@ export function JobOrderTable() {
     enabled: dialogOpen,
     staleTime: 5 * 60 * 1000,
   });
+
+  const dialogDataLoading =
+    dialogOpen &&
+    (customersLoading ||
+      customersFetching ||
+      inventoryLoading ||
+      inventoryFetching);
 
   const { data: jobOrderForEdit, isLoading: editLoading } = useQuery({
     queryKey: ["job-order", selectedJobOrder?.id],
@@ -130,11 +156,37 @@ export function JobOrderTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: () => {
+    onSuccess: (jobOrder) => {
       queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["job-order", jobOrder.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["job-order-release", jobOrder.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
       queryClient.invalidateQueries({
         queryKey: ["approved-estimates-for-job-order"],
       });
+      if (jobOrder.estimate_id) {
+        queryClient.setQueryData<EstimateWithRelations>(
+          ["estimate", jobOrder.estimate_id],
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  job_orders: {
+                    id: jobOrder.id,
+                    job_order_number: jobOrder.job_order_number,
+                    status: jobOrder.status,
+                  },
+                }
+              : old
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["estimate", jobOrder.estimate_id],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["units-received"] });
+      queryClient.invalidateQueries({ queryKey: ["units-analytics"] });
       invalidateDashboard();
       toast.success("Job order created successfully");
     },
@@ -153,8 +205,16 @@ export function JobOrderTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: () => {
+    onSuccess: (jobOrder, { id }) => {
+      queryClient.setQueryData(["job-order", id], jobOrder);
       queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["job-order", id] });
+      queryClient.invalidateQueries({ queryKey: ["job-order-release", id] });
+      queryClient.invalidateQueries({ queryKey: ["job-order-linked-invoice", id] });
+      queryClient.invalidateQueries({ queryKey: ["units-received"] });
+      queryClient.invalidateQueries({ queryKey: ["units-analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice"] });
       invalidateDashboard();
       toast.success("Job order updated successfully");
     },
@@ -167,7 +227,19 @@ export function JobOrderTable() {
       if (!result.success) throw new Error(result.error);
     },
     onSuccess: () => {
+      const linkedEstimateId = selectedJobOrder?.estimate_id;
       queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
+      if (linkedEstimateId) {
+        queryClient.invalidateQueries({
+          queryKey: ["estimate", linkedEstimateId],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["units-received"] });
+      queryClient.invalidateQueries({ queryKey: ["units-analytics"] });
       invalidateDashboard();
       setDeleteOpen(false);
       setSelectedJobOrder(undefined);
@@ -286,13 +358,7 @@ export function JobOrderTable() {
         title="Job Orders"
         description="Create job orders from approved estimates and track repair status."
       >
-        <Button
-          onClick={() => {
-            setSelectedJobOrder(undefined);
-            setDialogOpen(true);
-          }}
-          disabled={false}
-        >
+        <Button onClick={openCreateDialog} disabled={false}>
           <Plus className="mr-2 h-4 w-4" />
           New Job Order from Estimate
         </Button>
@@ -329,6 +395,8 @@ export function JobOrderTable() {
         isLoading={createMutation.isPending || updateMutation.isPending}
         initialEstimateId={selectedJobOrder ? undefined : initialEstimateId}
         editLoading={!!selectedJobOrder && editLoading}
+        createFormKey={createFormKey}
+        dialogDataLoading={dialogDataLoading}
       />
 
       <DeleteDialog

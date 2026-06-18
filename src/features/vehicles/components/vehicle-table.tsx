@@ -4,14 +4,14 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/shared/data-table";
-import { DeleteDialog } from "@/components/shared/delete-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,20 +21,20 @@ import {
 import { formatDate } from "@/lib/utils";
 import {
   createVehicle,
-  deleteVehicle,
-  getCustomersForSelect,
   getVehicles,
   updateVehicle,
   type VehicleWithCustomer,
 } from "../actions";
+import { getCustomersForSelect } from "@/features/customers/actions";
 import type { VehicleFormValues } from "../schemas";
 import { VehicleDialog } from "./vehicle-dialog";
+import { VehicleRemoveDialog } from "./vehicle-remove-dialog";
 
 export function VehicleTable() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<
     VehicleWithCustomer | undefined
   >();
@@ -89,19 +89,12 @@ export function VehicleTable() {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const result = await deleteVehicle(id);
-      if (!result.success) throw new Error(result.error);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      setDeleteOpen(false);
-      setSelectedVehicle(undefined);
-      toast.success("Vehicle deleted successfully");
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+  const handleRemoveSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles-list"] });
+    setRemoveOpen(false);
+    setSelectedVehicle(undefined);
+  };
 
   const handleSubmit = async (values: VehicleFormValues) => {
     if (selectedVehicle) {
@@ -116,6 +109,14 @@ export function VehicleTable() {
       {
         accessorKey: "plate_number",
         header: "Plate #",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <span>{row.original.plate_number}</span>
+            {row.original.is_active === false && (
+              <Badge variant="secondary">Deactivated</Badge>
+            )}
+          </div>
+        ),
       },
       {
         accessorKey: "brand",
@@ -169,20 +170,35 @@ export function VehicleTable() {
                   setSelectedVehicle(row.original);
                   setDialogOpen(true);
                 }}
+                disabled={
+                  row.original.is_active === false ||
+                  row.original.customers?.is_active === false
+                }
               >
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => {
-                  setSelectedVehicle(row.original);
-                  setDeleteOpen(true);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              {(row.original.is_active !== false ||
+                row.original.customers?.is_active !== false) && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSelectedVehicle(row.original);
+                    setRemoveOpen(true);
+                  }}
+                >
+                  {row.original.is_active === false ? (
+                    <>
+                      <Undo2 className="mr-2 h-4 w-4" />
+                      Reactivate
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Remove
+                    </>
+                  )}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
@@ -230,15 +246,12 @@ export function VehicleTable() {
         isLoading={createMutation.isPending || updateMutation.isPending}
       />
 
-      <DeleteDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="Delete Vehicle"
-        description={`Are you sure you want to delete vehicle ${selectedVehicle?.plate_number}?`}
-        onConfirm={() =>
-          selectedVehicle && deleteMutation.mutate(selectedVehicle.id)
-        }
-        isLoading={deleteMutation.isPending}
+      <VehicleRemoveDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        vehicle={selectedVehicle}
+        customerIsActive={selectedVehicle?.customers?.is_active !== false}
+        onSuccess={handleRemoveSuccess}
       />
     </div>
   );

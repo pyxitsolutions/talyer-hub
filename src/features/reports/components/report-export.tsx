@@ -12,6 +12,7 @@ import type { ReportData } from "../actions";
 interface ReportExportProps {
   report: ReportData | null;
   filename: string;
+  allowExcelExport?: boolean;
 }
 
 function formatSummaryValue(value: string | number, forPdf = false): string {
@@ -25,7 +26,11 @@ function formatSummaryValue(value: string | number, forPdf = false): string {
   return value;
 }
 
-export function ReportExport({ report, filename }: ReportExportProps) {
+export function ReportExport({
+  report,
+  filename,
+  allowExcelExport = true,
+}: ReportExportProps) {
   if (!report) return null;
 
   const handleExcelExport = () => {
@@ -90,10 +95,12 @@ export function ReportExport({ report, filename }: ReportExportProps) {
 
   return (
     <div className="flex gap-2">
-      <Button variant="outline" size="sm" onClick={handleExcelExport}>
-        <FileSpreadsheet className="mr-2 h-4 w-4" />
-        Export Excel
-      </Button>
+      {allowExcelExport ? (
+        <Button variant="outline" size="sm" onClick={handleExcelExport}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" />
+          Export Excel
+        </Button>
+      ) : null}
       <Button variant="outline" size="sm" onClick={handlePdfExport}>
         <FileText className="mr-2 h-4 w-4" />
         Export PDF

@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { useShop } from "@/lib/hooks/use-shop";
 import { downloadPDF, generateJobOrderPDF } from "@/lib/pdf/generator";
+import { printPDF } from "@/lib/pdf/print-pdf";
 import { formatCurrency, formatDate, formatQuantity } from "@/lib/utils";
 import { getJobOrder, getJobOrderReleaseEligibility } from "../actions";
 
@@ -49,6 +50,9 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const { data: releaseInfo } = useQuery({
@@ -71,8 +75,14 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    if (!shop || !jobOrder) return;
+    try {
+      const doc = await generateJobOrderPDF(shop, jobOrder);
+      printPDF(doc);
+    } catch {
+      toast.error("Failed to open print preview");
+    }
   };
 
   const partsTotal =
@@ -80,6 +90,8 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
       (sum, part) => sum + Number(part.total_price),
       0
     ) ?? 0;
+  const laborCost = Number(jobOrder?.labor_cost ?? jobOrder?.repair_estimates?.labor_cost ?? 0);
+  const jobOrderTotal = partsTotal + laborCost;
 
   if (isLoading) {
     return <p className="text-muted-foreground">Loading job order...</p>;
@@ -241,37 +253,47 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
             {!jobOrder.job_order_parts?.length ? (
               <p className="text-sm text-muted-foreground">No parts recorded.</p>
             ) : (
-              <>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Part Name</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Unit Price</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Part Name</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Unit Price</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {jobOrder.job_order_parts.map((part) => (
+                    <TableRow key={part.id}>
+                      <TableCell>{part.part_name}</TableCell>
+                      <TableCell className="text-right">
+                        {formatQuantity(part.quantity)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(part.unit_price)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(part.total_price)}
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {jobOrder.job_order_parts.map((part) => (
-                      <TableRow key={part.id}>
-                        <TableCell>{part.part_name}</TableCell>
-                        <TableCell className="text-right">
-                          {formatQuantity(part.quantity)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(part.unit_price)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(part.total_price)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <p className="mt-4 text-right text-base font-semibold">
-                  Parts Total: {formatCurrency(partsTotal)}
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            {(laborCost > 0 || partsTotal > 0) && (
+              <div className="mt-4 space-y-1 text-right">
+                {laborCost > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Labor: {formatCurrency(laborCost)}
+                  </p>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Parts total: {formatCurrency(partsTotal)}
                 </p>
-              </>
+                <p className="text-base font-semibold">
+                  Total: {formatCurrency(jobOrderTotal)}
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -368,9 +390,16 @@ export function JobOrderView({ jobOrderId }: JobOrderViewProps) {
 
         <PrintTotals
           items={[
+            ...(laborCost > 0
+              ? [{ label: "Labor", value: formatCurrency(laborCost) }]
+              : []),
             {
               label: "Parts Total",
               value: formatCurrency(partsTotal),
+            },
+            {
+              label: "Total",
+              value: formatCurrency(jobOrderTotal),
               emphasis: true,
             },
           ]}

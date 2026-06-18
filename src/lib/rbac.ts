@@ -22,6 +22,7 @@ export function canAccessRoute(role: RoleName | string, path: string): boolean {
     "/dashboard/expenses": "expenses",
     "/dashboard/service-history": "service_history",
     "/dashboard/reports": "reports",
+    "/dashboard/activity-log": "activity_log",
     "/dashboard/settings": "settings",
   };
 

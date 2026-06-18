@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import { getActivityActor, logActivity } from "@/lib/activity-log";
 import { LIST_PAGE_SIZE } from "@/lib/constants";
 import {
   assertNoActiveEstimateForVehicle,
@@ -10,6 +11,8 @@ import {
   type ActiveEstimateSummary,
 } from "@/lib/estimates/active-estimate";
 import { createClient } from "@/lib/supabase/server";
+import { assertCustomerIsActive } from "@/features/customers/customer-history";
+import { assertVehicleIsActive } from "@/features/vehicles/vehicle-history";
 import type { PaginatedResult } from "@/lib/types/pagination";
 import { generateNumber } from "@/lib/utils";
 import type {
@@ -68,6 +71,32 @@ function assertPositiveTotalCost(
     };
   }
   return { ok: true };
+}
+
+async function getVehicleNumbersForEstimate(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  vehicleId: string
+): Promise<
+  | { ok: true; chassis_number: string | null; engine_number: string | null }
+  | { ok: false; error: string }
+> {
+  const { data, error } = await supabase
+    .from("vehicles")
+    .select("chassis_number, engine_number")
+    .eq("id", vehicleId)
+    .eq("shop_id", shopId)
+    .single();
+
+  if (error || !data) {
+    return { ok: false, error: "Vehicle not found" };
+  }
+
+  return {
+    ok: true,
+    chassis_number: data.chassis_number,
+    engine_number: data.engine_number,
+  };
 }
 
 export async function getEstimates(
@@ -163,32 +192,6 @@ export async function getEstimate(
   }
 }
 
-export async function getCustomersForSelect(): Promise<
-  ActionResult<Pick<Customer, "id" | "full_name" | "customer_number">[]>
-> {
-  try {
-    const shopId = await getShopId();
-    const supabase = await createClient();
-
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, full_name, customer_number")
-      .eq("shop_id", shopId)
-      .order("full_name");
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    return { success: true, data: data ?? [] };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Failed to fetch customers",
-    };
-  }
-}
-
 export async function getVehiclesByCustomer(
   customerId: string
 ): Promise<ActionResult<Vehicle[]>> {
@@ -201,6 +204,7 @@ export async function getVehiclesByCustomer(
       .select("*")
       .eq("customer_id", customerId)
       .eq("shop_id", shopId)
+      .eq("is_active", true)
       .order("plate_number");
 
     if (error) {
@@ -297,6 +301,24 @@ export async function createEstimate(
       return { success: false, error: activeCheck.error };
     }
 
+    const vehicleActiveCheck = await assertVehicleIsActive(
+      supabase,
+      shopId,
+      parsed.data.vehicle_id
+    );
+    if (!vehicleActiveCheck.ok) {
+      return { success: false, error: vehicleActiveCheck.error };
+    }
+
+    const customerActiveCheck = await assertCustomerIsActive(
+      supabase,
+      shopId,
+      parsed.data.customer_id
+    );
+    if (!customerActiveCheck.ok) {
+      return { success: false, error: customerActiveCheck.error };
+    }
+
     const { count, error: countError } = await supabase
       .from("repair_estimates")
       .select("*", { count: "exact", head: true })
@@ -308,6 +330,15 @@ export async function createEstimate(
 
     const estimateNumber = generateNumber("EST", count ?? 0);
 
+    const vehicleNumbers = await getVehicleNumbersForEstimate(
+      supabase,
+      shopId,
+      parsed.data.vehicle_id
+    );
+    if (!vehicleNumbers.ok) {
+      return { success: false, error: vehicleNumbers.error };
+    }
+
     const { data, error } = await supabase
       .from("repair_estimates")
       .insert({
@@ -316,8 +347,8 @@ export async function createEstimate(
         estimate_date: parsed.data.estimate_date,
         customer_id: parsed.data.customer_id,
         vehicle_id: parsed.data.vehicle_id,
-        chassis_number: parsed.data.chassis_number || null,
-        engine_number: parsed.data.engine_number || null,
+        chassis_number: vehicleNumbers.chassis_number,
+        engine_number: vehicleNumbers.engine_number,
         problem_description: parsed.data.problem_description || null,
         repair_description: parsed.data.repair_description || null,
         recommendation: parsed.data.recommendation || null,
@@ -343,6 +374,21 @@ export async function createEstimate(
     }
 
     await insertEstimateItems(supabase, shopId, data.id, parsed.data.items);
+
+    const actor = await getActivityActor();
+    if (actor) {
+      await logActivity(supabase, {
+        shopId: actor.shopId,
+        userId: actor.userId,
+        actorName: actor.actorName,
+        actorRole: actor.actorRole,
+        actionType: "estimate_created",
+        entityType: "repair_estimates",
+        entityId: data.id,
+        entityLabel: data.estimate_number,
+        summary: `Created estimate ${data.estimate_number}`,
+      });
+    }
 
     revalidatePath("/dashboard/estimates");
     revalidatePath("/dashboard");
@@ -397,10 +443,37 @@ export async function updateEstimate(
       return { success: false, error: activeCheck.error };
     }
 
+    const vehicleActiveCheck = await assertVehicleIsActive(
+      supabase,
+      shopId,
+      parsed.data.vehicle_id
+    );
+    if (!vehicleActiveCheck.ok) {
+      return { success: false, error: vehicleActiveCheck.error };
+    }
+
+    const customerActiveCheck = await assertCustomerIsActive(
+      supabase,
+      shopId,
+      parsed.data.customer_id
+    );
+    if (!customerActiveCheck.ok) {
+      return { success: false, error: customerActiveCheck.error };
+    }
+
     const costs = calculateCosts(parsed.data.items, parsed.data.labor_cost);
     const totalCheck = assertPositiveTotalCost(costs.total_cost);
     if (!totalCheck.ok) {
       return { success: false, error: totalCheck.error };
+    }
+
+    const vehicleNumbers = await getVehicleNumbersForEstimate(
+      supabase,
+      shopId,
+      parsed.data.vehicle_id
+    );
+    if (!vehicleNumbers.ok) {
+      return { success: false, error: vehicleNumbers.error };
     }
 
     const { data, error } = await supabase
@@ -409,8 +482,8 @@ export async function updateEstimate(
         estimate_date: parsed.data.estimate_date,
         customer_id: parsed.data.customer_id,
         vehicle_id: parsed.data.vehicle_id,
-        chassis_number: parsed.data.chassis_number || null,
-        engine_number: parsed.data.engine_number || null,
+        chassis_number: vehicleNumbers.chassis_number,
+        engine_number: vehicleNumbers.engine_number,
         problem_description: parsed.data.problem_description || null,
         repair_description: parsed.data.repair_description || null,
         recommendation: parsed.data.recommendation || null,
@@ -577,8 +650,24 @@ export async function approveEstimate(
       };
     }
 
+    const actor = await getActivityActor();
+    if (actor) {
+      await logActivity(supabase, {
+        shopId: actor.shopId,
+        userId: actor.userId,
+        actorName: actor.actorName,
+        actorRole: actor.actorRole,
+        actionType: "estimate_approved",
+        entityType: "repair_estimates",
+        entityId: data.id,
+        entityLabel: data.estimate_number,
+        summary: `Approved estimate ${data.estimate_number}`,
+      });
+    }
+
     revalidatePath("/dashboard/estimates");
     revalidatePath(`/dashboard/estimates/${id}`);
+    revalidatePath("/dashboard/job-orders");
     return { success: true, data };
   } catch (err) {
     return {
@@ -646,6 +735,7 @@ export async function revertEstimateToDraft(
 
     revalidatePath("/dashboard/estimates");
     revalidatePath(`/dashboard/estimates/${id}`);
+    revalidatePath("/dashboard/job-orders");
     return { success: true, data };
   } catch (err) {
     return {

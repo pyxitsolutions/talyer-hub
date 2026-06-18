@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getShopId } from "@/lib/auth";
+import { getProShopId } from "@/lib/auth/plan-guard";
 import { createClient } from "@/lib/supabase/server";
 import type { InventoryItem, InventoryTransaction } from "@/types/database";
 import {
@@ -35,7 +35,7 @@ export async function getInventoryItems(
   search?: string
 ): Promise<ActionResult<InventoryItem[]>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     let query = supabase
@@ -70,7 +70,7 @@ export async function getInventoryItem(
   id: string
 ): Promise<ActionResult<InventoryItem>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -102,7 +102,7 @@ export async function createInventoryItem(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -158,7 +158,7 @@ export async function updateInventoryItem(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -193,7 +193,7 @@ export async function updateInventoryItem(
 
 export async function deleteInventoryItem(id: string): Promise<ActionResult> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { error } = await supabase
@@ -226,7 +226,7 @@ export async function stockIn(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
     const userId = await getCurrentUserId(supabase);
 
@@ -291,7 +291,7 @@ export async function stockOut(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
     const userId = await getCurrentUserId(supabase);
 
@@ -363,7 +363,7 @@ export async function adjustStock(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
     const userId = await getCurrentUserId(supabase);
 
@@ -424,7 +424,7 @@ export async function adjustStock(
 
 export async function getLowStock(): Promise<ActionResult<InventoryItem[]>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -454,7 +454,7 @@ export async function getHistory(
   inventoryItemId?: string
 ): Promise<ActionResult<InventoryTransactionWithItem[]>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     let query = supabase

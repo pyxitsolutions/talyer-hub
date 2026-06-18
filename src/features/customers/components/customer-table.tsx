@@ -4,13 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Eye, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, MoreHorizontal, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/shared/data-table";
-import { DeleteDialog } from "@/components/shared/delete-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,18 +22,18 @@ import { formatDate } from "@/lib/utils";
 import type { Customer } from "@/types/database";
 import {
   createCustomer,
-  deleteCustomer,
   getCustomers,
   updateCustomer,
 } from "../actions";
 import type { CustomerFormValues } from "../schemas";
 import { CustomerDialog } from "./customer-dialog";
+import { CustomerRemoveDialog } from "./customer-remove-dialog";
 
 export function CustomerTable() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | undefined>();
 
   const { data: customers = [], isLoading } = useQuery({
@@ -53,6 +53,7 @@ export function CustomerTable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["customers-select"] });
       toast.success("Customer created successfully");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -72,24 +73,20 @@ export function CustomerTable() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["customers-select"] });
       toast.success("Customer updated successfully");
     },
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const result = await deleteCustomer(id);
-      if (!result.success) throw new Error(result.error);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      setDeleteOpen(false);
-      setSelectedCustomer(undefined);
-      toast.success("Customer deleted successfully");
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+  const handleRemoveSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["customers"] });
+    queryClient.invalidateQueries({ queryKey: ["customers-select"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles-list"] });
+    setRemoveOpen(false);
+    setSelectedCustomer(undefined);
+  };
 
   const handleSubmit = async (values: CustomerFormValues) => {
     if (selectedCustomer) {
@@ -108,6 +105,14 @@ export function CustomerTable() {
       {
         accessorKey: "full_name",
         header: "Name",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <span>{row.original.full_name}</span>
+            {row.original.is_active === false && (
+              <Badge variant="secondary">Deactivated</Badge>
+            )}
+          </div>
+        ),
       },
       {
         accessorKey: "contact_number",
@@ -142,24 +147,34 @@ export function CustomerTable() {
                   View Details
                 </Link>
               </DropdownMenuItem>
+              {row.original.is_active !== false && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSelectedCustomer(row.original);
+                    setDialogOpen(true);
+                  }}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => {
                   setSelectedCustomer(row.original);
-                  setDialogOpen(true);
+                  setRemoveOpen(true);
                 }}
               >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => {
-                  setSelectedCustomer(row.original);
-                  setDeleteOpen(true);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+                {row.original.is_active === false ? (
+                  <>
+                    <Undo2 className="mr-2 h-4 w-4" />
+                    Reactivate
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove
+                  </>
+                )}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -173,7 +188,7 @@ export function CustomerTable() {
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description="Manage customer records for your shop."
+        description="Manage customer records. Collect only what you need and follow the Data Privacy Act for shop-held customer data."
       >
         <Button
           onClick={() => {
@@ -206,15 +221,11 @@ export function CustomerTable() {
         isLoading={createMutation.isPending || updateMutation.isPending}
       />
 
-      <DeleteDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="Delete Customer"
-        description={`Are you sure you want to delete ${selectedCustomer?.full_name}? This will also remove all associated vehicles.`}
-        onConfirm={() =>
-          selectedCustomer && deleteMutation.mutate(selectedCustomer.id)
-        }
-        isLoading={deleteMutation.isPending}
+      <CustomerRemoveDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        customer={selectedCustomer}
+        onSuccess={handleRemoveSuccess}
       />
     </div>
   );

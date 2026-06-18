@@ -1,16 +1,17 @@
--- Seed Data for PyX AutoCare Pro
+-- Seed Data for TalyerHub
 
 -- Roles
 INSERT INTO roles (id, name, description) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'owner', 'Shop owner with full access'),
   ('a0000000-0000-0000-0000-000000000002', 'service_advisor', 'Service advisor managing estimates and customers'),
   ('a0000000-0000-0000-0000-000000000003', 'technician', 'Technician performing repairs'),
-  ('a0000000-0000-0000-0000-000000000004', 'cashier', 'Cashier handling billing and payments')
+  ('a0000000-0000-0000-0000-000000000004', 'cashier', 'Cashier handling billing and payments'),
+  ('a0000000-0000-0000-0000-000000000005', 'super_admin', 'Platform administrator with cross-shop access')
 ON CONFLICT (name) DO NOTHING;
 
 -- Demo Shop
-INSERT INTO shops (id, shop_name, owner_name, contact_number, email, address) VALUES
-  ('b0000000-0000-0000-0000-000000000001', 'Premier Auto Care', 'John Martinez', '+1-555-0100', 'info@premierautocare.com', '123 Main Street, Auto City, AC 12345')
+INSERT INTO shops (id, shop_name, owner_name, contact_number, email, address, status, plan) VALUES
+  ('b0000000-0000-0000-0000-000000000001', 'Premier Auto Care', 'John Martinez', '+1-555-0100', 'info@premierautocare.com', '123 Main Street, Auto City, AC 12345', 'active', 'pro')
 ON CONFLICT DO NOTHING;
 
 -- Demo Customers

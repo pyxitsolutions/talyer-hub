@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -17,10 +17,13 @@ interface DeleteDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title?: string;
-  description?: string;
+  description?: ReactNode;
   itemName?: string;
   onConfirm: () => void | Promise<void>;
   isLoading?: boolean;
+  confirmLabel?: string;
+  confirmVariant?: "destructive" | "default";
+  confirmDisabled?: boolean;
 }
 
 export function DeleteDialog({
@@ -31,19 +34,23 @@ export function DeleteDialog({
   itemName,
   onConfirm,
   isLoading: externalLoading,
+  confirmLabel = "Delete",
+  confirmVariant = "destructive",
+  confirmDisabled = false,
 }: DeleteDialogProps) {
   const [internalLoading, setInternalLoading] = useState(false);
-  const isLoading = externalLoading ?? internalLoading;
+  const isLoading = externalLoading || internalLoading;
 
   const defaultDescription = itemName
     ? `This will permanently delete "${itemName}". This action cannot be undone.`
     : "This action cannot be undone.";
 
   async function handleConfirm() {
+    if (isLoading) return;
+
     setInternalLoading(true);
     try {
       await onConfirm();
-      onOpenChange(false);
     } finally {
       setInternalLoading(false);
     }
@@ -61,12 +68,12 @@ export function DeleteDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
           <Button
-            variant="destructive"
+            variant={confirmVariant}
             onClick={handleConfirm}
-            disabled={isLoading}
+            disabled={isLoading || confirmDisabled}
           >
             {isLoading && <Loader2 className="animate-spin" />}
-            Delete
+            {confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

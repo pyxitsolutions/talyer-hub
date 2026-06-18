@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getShopId } from "@/lib/auth";
+import { getProShopId } from "@/lib/auth/plan-guard";
 import { createClient } from "@/lib/supabase/server";
 import type { SalesRecord, SaleType } from "@/types/database";
 import { salesFormSchema, type SalesFormValues } from "./schemas";
@@ -94,7 +94,7 @@ export async function getSalesRecords(
   search?: string
 ): Promise<ActionResult<SalesRecord[]>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     let query = supabase
@@ -125,7 +125,7 @@ export async function getSalesRecords(
 
 export async function getSalesAnalytics(): Promise<ActionResult<SalesAnalytics>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const yearlyRange = getDateRange("yearly");
@@ -188,7 +188,7 @@ export async function createSalesRecord(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -228,7 +228,7 @@ export async function updateSalesRecord(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -261,7 +261,7 @@ export async function updateSalesRecord(
 
 export async function deleteSalesRecord(id: string): Promise<ActionResult> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { error } = await supabase

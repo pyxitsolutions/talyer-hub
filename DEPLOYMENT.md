@@ -1,6 +1,6 @@
-# PyX AutoCare Pro — Deployment Guide
+# TalyerHub — Deployment Guide
 
-Production deployment guide for PyX AutoCare Pro (SaaS-ready, multi-tenant auto care shop management).
+Production deployment guide for TalyerHub (SaaS-ready, multi-tenant auto care shop management).
 
 ## Prerequisites
 
@@ -17,21 +17,69 @@ Production deployment guide for PyX AutoCare Pro (SaaS-ready, multi-tenant auto 
 
 ### Run Database Migrations
 
-In the Supabase SQL Editor, run these files in order:
+**Option A — One file (recommended for new projects)**
 
-1. `supabase/migrations/001_initial_schema.sql` — Tables, indexes, triggers, functions
-2. `supabase/migrations/002_rls_policies.sql` — Row Level Security policies
-3. `supabase/seed.sql` — Demo roles, shop, customers, inventory (optional)
+In Supabase → SQL Editor, run the entire file:
+
+`supabase/complete_schema.sql`
+
+This combines migrations `001` through `018`. Use this only on a **new empty** Supabase project.
+
+Regenerate after migration changes:
+
+```bash
+node scripts/build-complete-migration.mjs
+```
+
+**Option B — Individual files (existing projects / incremental updates)**
+
+Run these in order in the SQL Editor:
+
+1. `supabase/migrations/001_initial_schema.sql` through `018_shop_plan.sql`
+
+Do **not** run both Option A and Option B on the same database.
+
+Optional demo data: `supabase/seed.sql` (development only — not for production)
 
 ### Enable Authentication
 
 In Supabase Dashboard → Authentication → Providers:
 
 - Enable **Email** provider
+- **Turn OFF “Confirm email”** — registration uses admin approval instead of email verification (no confirmation email is sent)
 - Configure **Site URL**: `https://your-domain.com`
 - Add **Redirect URLs**:
   - `https://your-domain.com/reset-password`
   - `http://localhost:3000/reset-password` (development)
+
+### Registration flow (no email confirmation)
+
+1. User registers at `/register` — account is auto-confirmed server-side (no email sent)
+2. Shop is created with status **pending**
+3. User sees **Waiting for approval** (`/pending-approval`)
+4. Super admin approves at **Platform Admin → Shops** (`/dashboard/admin/shops`)
+5. After approval, shop owner can use the full dashboard
+
+### Password reset (beta — admin-assisted)
+
+Self-service email reset is disabled to avoid Supabase email limits.
+
+1. Shop owner clicks **Forgot password?** on login → sees instructions to contact platform admin
+2. Super admin opens **Platform Admin → Shops** → **Reset password** on the shop row
+3. Set or generate a temporary password, copy it, and send it to the owner (Viber, SMS, etc.)
+4. Owner signs in with that password, then goes to **Settings → Change Password**
+
+Promote your platform admin once (SQL Editor):
+
+```sql
+UPDATE profiles SET is_super_admin = true WHERE email = 'YOUR_ADMIN_EMAIL';
+
+DELETE FROM shops
+WHERE id IN (
+  SELECT shop_id FROM profiles
+  WHERE email = 'YOUR_ADMIN_EMAIL' AND shop_id IS NOT NULL
+);
+```
 
 ### Storage (Optional — Shop Logos)
 
@@ -53,7 +101,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (server-only, for registration) |
 | `NEXT_PUBLIC_APP_URL` | App URL (e.g. `https://yourapp.vercel.app`) |
-| `NEXT_PUBLIC_APP_NAME` | Display name (default: PyX AutoCare Pro) |
+| `NEXT_PUBLIC_APP_NAME` | Display name (default: TalyerHub) |
 
 > **Security:** Never expose `SUPABASE_SERVICE_ROLE_KEY` to the client. Use only in server actions.
 
@@ -97,7 +145,7 @@ Add all variables from `.env.example` in Project Settings → Environment Variab
 
 - RLS is enabled on all tenant tables — verify policies after migrations
 - Use `SUPABASE_SERVICE_ROLE_KEY` only in server actions (registration)
-- Enable Supabase email confirmation in production
+- Keep **Confirm email OFF** — approval is handled in Platform Admin, not via email link
 - Set strong password requirements in Supabase Auth settings
 
 ### Multi-Tenancy
@@ -137,15 +185,18 @@ Assign roles via the `user_roles` table after creating team members.
 
 ## 7. Post-Deployment Checklist
 
-- [ ] Run all SQL migrations
+- [ ] Run `supabase/complete_schema.sql` (new project) **or** migrations 001–018 individually
 - [ ] Configure auth redirect URLs
+- [ ] **Confirm email = OFF** in Supabase (admin approval handles access)
 - [ ] Set environment variables on host
-- [ ] Register first shop owner account
+- [ ] Promote super admin account (SQL above)
+- [ ] Register a test shop → appears in **Pending** tab → Approve
 - [ ] Verify RLS — test with two shop accounts
 - [ ] Test PDF export (estimates, invoices, job orders)
 - [ ] Test Excel export (reports module)
 - [ ] Configure custom domain + SSL
-- [ ] Enable email confirmation (production)
+- [ ] Test forgot-password page shows admin-contact instructions (no email sent)
+- [ ] Test admin password reset from Platform Admin → Shops → Reset password
 
 ## 8. Troubleshooting
 

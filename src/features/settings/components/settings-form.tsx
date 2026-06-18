@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -8,11 +9,16 @@ import { z } from "zod";
 
 import { PageHeader } from "@/components/shared/page-header";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import { LegalLinks } from "@/components/legal/legal-links";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { TeamSection } from "@/features/team/components/team-section";
+import { PLAN_PRICING, shopHasProAccess } from "@/lib/plans";
+import { LEGAL_ENTITY_NAME, SUPPORT_EMAIL } from "@/lib/constants";
 import {
   changePassword,
   getShopSettings,
@@ -41,7 +47,7 @@ const passwordFormSchema = z
     path: ["confirm_password"],
   });
 
-export function SettingsForm() {
+export function SettingsForm({ isOwner = false }: { isOwner?: boolean }) {
   const queryClient = useQueryClient();
 
   const { data: shop, isLoading } = useQuery({
@@ -107,75 +113,131 @@ export function SettingsForm() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Manage your shop information and account security."
+        description={
+          isOwner
+            ? "Manage your shop information, team, and account security."
+            : "Manage your account security."
+        }
       />
 
-      {shop && (
+      {isOwner && shop && (
         <ShopLogoUpload shopName={shop.shop_name} logoUrl={shop.logo_url} />
+      )}
+
+      {isOwner && shop && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Subscription Plan</CardTitle>
+            <CardDescription>
+              Your current plan controls which modules are available in the app.
+              Contact support to change your plan or billing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <Badge variant={shopHasProAccess(shop.plan) ? "default" : "secondary"}>
+                {PLAN_PRICING[shop.plan].label}
+              </Badge>
+              <p className="text-sm text-muted-foreground">
+                ₱{PLAN_PRICING[shop.plan].price} / month
+              </p>
+            </div>
+            {!shopHasProAccess(shop.plan) && (
+              <Button asChild>
+                <Link href="/dashboard/upgrade">Upgrade to Pro</Link>
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isOwner && (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Shop Information</CardTitle>
+              <CardDescription>Update your shop profile and contact details.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form
+                onSubmit={shopForm.handleSubmit((values) =>
+                  updateShopMutation.mutate(values)
+                )}
+                className="space-y-4"
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="shop_name">Shop Name *</Label>
+                    <Input id="shop_name" {...shopForm.register("shop_name")} />
+                    {shopForm.formState.errors.shop_name && (
+                      <p className="text-sm text-destructive">
+                        {shopForm.formState.errors.shop_name.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner_name">Owner Name *</Label>
+                    <Input id="owner_name" {...shopForm.register("owner_name")} />
+                    {shopForm.formState.errors.owner_name && (
+                      <p className="text-sm text-destructive">
+                        {shopForm.formState.errors.owner_name.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="contact_number">Contact Number</Label>
+                    <Input id="contact_number" {...shopForm.register("contact_number")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" {...shopForm.register("email")} />
+                    {shopForm.formState.errors.email && (
+                      <p className="text-sm text-destructive">
+                        {shopForm.formState.errors.email.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Textarea id="address" rows={3} {...shopForm.register("address")} />
+                </div>
+                <Button type="submit" disabled={updateShopMutation.isPending}>
+                  {updateShopMutation.isPending ? "Saving..." : "Save Shop Info"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {shop && shopHasProAccess(shop.plan) ? (
+            <TeamSection />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Team</CardTitle>
+                <CardDescription>
+                  Add service advisors and cashiers with Pro (₱{PLAN_PRICING.pro.price}/month).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild variant="outline">
+                  <Link href="/dashboard/upgrade">View plans & upgrade</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Shop Information</CardTitle>
-          <CardDescription>Update your shop profile and contact details.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={shopForm.handleSubmit((values) =>
-              updateShopMutation.mutate(values)
-            )}
-            className="space-y-4"
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="shop_name">Shop Name *</Label>
-                <Input id="shop_name" {...shopForm.register("shop_name")} />
-                {shopForm.formState.errors.shop_name && (
-                  <p className="text-sm text-destructive">
-                    {shopForm.formState.errors.shop_name.message}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="owner_name">Owner Name *</Label>
-                <Input id="owner_name" {...shopForm.register("owner_name")} />
-                {shopForm.formState.errors.owner_name && (
-                  <p className="text-sm text-destructive">
-                    {shopForm.formState.errors.owner_name.message}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="contact_number">Contact Number</Label>
-                <Input id="contact_number" {...shopForm.register("contact_number")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" {...shopForm.register("email")} />
-                {shopForm.formState.errors.email && (
-                  <p className="text-sm text-destructive">
-                    {shopForm.formState.errors.email.message}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <Textarea id="address" rows={3} {...shopForm.register("address")} />
-            </div>
-            <Button type="submit" disabled={updateShopMutation.isPending}>
-              {updateShopMutation.isPending ? "Saving..." : "Save Shop Info"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Change Password</CardTitle>
-          <CardDescription>Update your account password.</CardDescription>
+          <CardDescription>
+            Update your account password. If an admin gave you a temporary password, enter
+            it as your current password first.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -227,6 +289,31 @@ export function SettingsForm() {
               {changePasswordMutation.isPending ? "Updating..." : "Change Password"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Privacy & Data Protection</CardTitle>
+          <CardDescription>
+            How {LEGAL_ENTITY_NAME} handles platform data and your responsibilities for
+            customer records under the Data Privacy Act (R.A. 10173).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <LegalLinks className="text-left" />
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            For data privacy requests about your {LEGAL_ENTITY_NAME} / TalyerHub account,
+            email{" "}
+            <a
+              href={`mailto:${SUPPORT_EMAIL}?subject=Data%20Privacy%20Request%20-%20TalyerHub`}
+              className="text-primary hover:underline"
+            >
+              {SUPPORT_EMAIL}
+            </a>
+            . Customer records you enter belong to your shop — honor customer requests
+            directly when they ask about their service data.
+          </p>
         </CardContent>
       </Card>
     </div>

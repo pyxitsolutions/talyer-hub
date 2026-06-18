@@ -27,6 +27,8 @@ export const invoiceFormSchema = z.object({
     .enum(["cash", "card", "bank_transfer", "check", "other"])
     .optional()
     .or(z.literal("")),
+  payment_reference: z.string().max(100).optional().or(z.literal("")),
+  payer_account_name: z.string().max(200).optional().or(z.literal("")),
   items: z.array(invoiceItemSchema).min(0),
 });
 
@@ -36,7 +38,17 @@ export const paymentUpdateSchema = z.object({
     .enum(["cash", "card", "bank_transfer", "check", "other"])
     .optional()
     .or(z.literal("")),
+  payment_reference: z.string().max(100).optional().or(z.literal("")),
+  payer_account_name: z.string().max(200).optional().or(z.literal("")),
 });
+
+export const invoiceCreateFormSchema = invoiceFormSchema.refine(
+  (data) => !!data.job_order_id,
+  {
+    message: "Select a completed job order to create an invoice.",
+    path: ["job_order_id"],
+  }
+);
 
 export type InvoiceItemFormValues = z.infer<typeof invoiceItemSchema>;
 export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;

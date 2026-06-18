@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Customer, InventoryItem, JobOrder, Vehicle } from "@/types/database";
+import { getEstimate } from "@/features/estimates/actions";
 import { getJobOrderReleaseEligibility, getVehiclesByCustomer } from "../actions";
 import type { JobOrderFormValues } from "../schemas";
 import { JobOrderForm } from "./job-order-form";
@@ -35,6 +36,8 @@ interface JobOrderDialogProps {
   isLoading?: boolean;
   initialEstimateId?: string;
   editLoading?: boolean;
+  createFormKey?: number;
+  dialogDataLoading?: boolean;
 }
 
 export function JobOrderDialog({
@@ -47,6 +50,8 @@ export function JobOrderDialog({
   isLoading = false,
   initialEstimateId,
   editLoading = false,
+  createFormKey = 0,
+  dialogDataLoading = false,
 }: JobOrderDialogProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [canRelease, setCanRelease] = useState(true);
@@ -64,6 +69,16 @@ export function JobOrderDialog({
       handleCustomerChange(jobOrder.customer_id);
     }
   }, [open, jobOrder?.customer_id, handleCustomerChange]);
+
+  useEffect(() => {
+    if (!open || !initialEstimateId || jobOrder) return;
+
+    getEstimate(initialEstimateId).then((result) => {
+      if (result.success && result.data.status === "approved") {
+        handleCustomerChange(result.data.customer_id);
+      }
+    });
+  }, [open, initialEstimateId, jobOrder, handleCustomerChange]);
 
   useEffect(() => {
     if (!open || !jobOrder?.id) {
@@ -106,6 +121,7 @@ export function JobOrderDialog({
           </p>
         ) : (
         <JobOrderForm
+          key={jobOrder?.id ?? `create-${createFormKey}`}
           jobOrder={jobOrder}
           customers={customers}
           vehicles={vehicles}
@@ -118,6 +134,7 @@ export function JobOrderDialog({
           releaseBlockMessage={releaseBlockMessage}
           initialEstimateId={initialEstimateId}
           active={open}
+          dialogDataLoading={dialogDataLoading}
         />
         )}
       </DialogContent>

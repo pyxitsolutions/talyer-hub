@@ -1,12 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/constants";
+import { PLAN_PRICING, shopHasProAccess } from "@/lib/plans";
 import { useShop } from "@/lib/hooks/use-shop";
 import { getDashboardData } from "@/features/dashboard/actions";
 import { CategoryChart } from "./category-chart";
@@ -19,11 +21,13 @@ import { TopPartsChart } from "./top-parts-chart";
 export const DASHBOARD_QUERY_KEY = ["dashboard"] as const;
 
 export function DashboardView() {
-  const { profile, shopId, loading: shopLoading } = useShop();
+  const { profile, shopId, shop, loading: shopLoading } = useShop();
   const userName = profile?.full_name ?? null;
+  const shopIsActive = shop?.status === "active";
+  const isPro = shopHasProAccess(shop?.plan);
 
   const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: DASHBOARD_QUERY_KEY,
+    queryKey: [...DASHBOARD_QUERY_KEY, shopId],
     queryFn: async () => {
       const result = await getDashboardData();
       if (!result.success) {
@@ -31,9 +35,9 @@ export function DashboardView() {
       }
       return result.data;
     },
-    enabled: !!shopId,
+    enabled: !!shopId && shopIsActive,
     staleTime: 3 * 60 * 1000,
-    refetchOnMount: false,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
 
@@ -73,17 +77,31 @@ export function DashboardView() {
         <>
           <KpiCards stats={data.stats} />
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <RevenueChart data={data.revenueTrend} />
-            <ExpenseChart data={data.expenseTrend} />
-          </div>
+          {isPro ? (
+            <>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <RevenueChart data={data.revenueTrend} />
+                <ExpenseChart data={data.expenseTrend} />
+              </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ProfitChart data={data.profitTrend} />
-            <CategoryChart data={data.repairCategories} />
-          </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ProfitChart data={data.profitTrend} />
+                <CategoryChart data={data.repairCategories} />
+              </div>
 
-          <TopPartsChart data={data.topSellingParts} />
+              <TopPartsChart data={data.topSellingParts} />
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                Advanced charts, sales, expenses, and financial reports are included in Pro
+                (₱{PLAN_PRICING.pro.price}/month).
+              </p>
+              <Button asChild className="mt-4" size="sm">
+                <Link href="/dashboard/upgrade">View plans & upgrade</Link>
+              </Button>
+            </div>
+          )}
         </>
       ) : null}
     </div>

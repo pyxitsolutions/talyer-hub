@@ -1,4 +1,4 @@
--- PyX AutoCare Pro — Reset business / operational data
+-- TalyerHub — Reset business / operational data
 --
 -- Keeps: auth users, profiles, roles, user_roles, shops (tenant settings)
 -- Clears: customers, vehicles, estimates, job orders, invoices, inventory,

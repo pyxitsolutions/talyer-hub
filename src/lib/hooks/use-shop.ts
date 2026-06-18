@@ -1,8 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, Shop } from "@/types/database";
+
+export const SHOP_QUERY_KEY = "shop" as const;
 
 interface ShopData {
   shopId: string | null;
@@ -49,17 +52,43 @@ async function fetchShopData(): Promise<ShopData> {
 }
 
 export function useShop() {
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClient();
+
+  useEffect(() => {
+    let active = true;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (active) {
+        setUserId(user?.id ?? null);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserId(session?.user?.id ?? null);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase.auth]);
+
   const query = useQuery({
-    queryKey: ["shop"],
+    queryKey: [SHOP_QUERY_KEY, userId],
     queryFn: fetchShopData,
-    staleTime: 5 * 60 * 1000,
+    enabled: !!userId,
+    staleTime: 60 * 1000,
+    refetchOnMount: "always",
   });
 
   return {
     shopId: query.data?.shopId ?? null,
     shop: query.data?.shop ?? null,
     profile: query.data?.profile ?? null,
-    loading: query.isLoading,
+    loading: !userId || query.isLoading,
     error: query.error?.message ?? null,
     refetch: query.refetch,
   };

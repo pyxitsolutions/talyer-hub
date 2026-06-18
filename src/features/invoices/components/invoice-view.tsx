@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Printer } from "lucide-react";
@@ -18,8 +18,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -35,12 +35,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Switch } from "@/components/ui/switch";
 import { APP_NAME, PAYMENT_METHODS } from "@/lib/constants";
 import { downloadPDF, generateInvoicePDF } from "@/lib/pdf/generator";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { useShop } from "@/lib/hooks/use-shop";
 import { formatCurrency, formatDate, formatQuantity } from "@/lib/utils";
-import { getInvoicePaymentSummary } from "@/lib/invoices/payment";
+import {
+  getInvoicePaymentSummary,
+  requiresPaymentReference,
+  validatePaymentDetails,
+} from "@/lib/invoices/payment";
 import type { PaymentMethod } from "@/types/database";
 import { getInvoice, updatePayment } from "../actions";
 
@@ -54,16 +59,16 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
   const invalidateDashboard = useInvalidateDashboard();
   const { shop } = useShop();
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [amountPaid, setAmountPaid] = useState("");
+  const [isPaid, setIsPaid] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [payerAccountName, setPayerAccountName] = useState("");
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ["invoice", invoiceId],
     queryFn: async () => {
       const result = await getInvoice(invoiceId);
       if (!result.success) throw new Error(result.error);
-      setAmountPaid(String(result.data.amount_paid));
-      setPaymentMethod(result.data.payment_method ?? "");
 
       if (result.data.verification_code) {
         const url = `${process.env.NEXT_PUBLIC_APP_URL}/verify/${result.data.verification_code}`;
@@ -72,36 +77,63 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
 
       return result.data;
     },
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (!invoice) return;
+    setIsPaid(invoice.payment_status === "paid");
+    setPaymentMethod(invoice.payment_method ?? "");
+    setPaymentReference(invoice.payment_reference ?? "");
+    setPayerAccountName(invoice.payer_account_name ?? "");
+  }, [invoice]);
+
+  const showPaymentReference = isPaid && requiresPaymentReference(paymentMethod);
 
   const paymentMutation = useMutation({
     mutationFn: async () => {
+      const amountPaid = isPaid ? invoice!.total_amount : 0;
+      const paymentCheck = validatePaymentDetails(
+        paymentMethod,
+        amountPaid,
+        invoice!.total_amount,
+        paymentReference,
+        payerAccountName
+      );
+      if (!paymentCheck.ok) {
+        throw new Error(paymentCheck.error);
+      }
+
       const result = await updatePayment(invoiceId, {
-        amount_paid: parseFloat(amountPaid) || 0,
+        amount_paid: amountPaid,
         payment_method: paymentMethod || undefined,
+        payment_reference: paymentReference,
+        payer_account_name: payerAccountName,
       });
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+    onSuccess: (updatedInvoice) => {
+      queryClient.setQueryData(["invoice", invoiceId], updatedInvoice);
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice", invoiceId, "edit"] });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      invalidateDashboard();
-      if (invoice) {
-        const tendered = parseFloat(amountPaid) || 0;
-        const { change } = getInvoicePaymentSummary(
-          tendered,
-          invoice.total_amount
-        );
-        toast.success(
-          change > 0
-            ? `Payment recorded. Change: ${formatCurrency(change)}`
-            : "Payment updated"
-        );
-      } else {
-        toast.success("Payment updated");
+      if (updatedInvoice.job_order_id) {
+        queryClient.invalidateQueries({
+          queryKey: ["job-order", updatedInvoice.job_order_id],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["job-order-linked-invoice", updatedInvoice.job_order_id],
+        });
       }
+      invalidateDashboard();
+      toast.success(
+        updatedInvoice.payment_status === "paid"
+          ? "Invoice marked as paid"
+          : "Payment cleared"
+      );
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -132,11 +164,6 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
     invoice.amount_paid,
     invoice.total_amount
   );
-  const tenderedAmount = parseFloat(amountPaid) || 0;
-  const previewSummary = getInvoicePaymentSummary(
-    tenderedAmount,
-    invoice.total_amount
-  );
 
   return (
     <div className="space-y-6">
@@ -156,7 +183,7 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive print:hidden">
           <strong>Locked record.</strong> Job order{" "}
           {invoice.job_orders.job_order_number} is released. This invoice cannot be
-          deleted.
+          updated or deleted.
         </div>
       )}
 
@@ -224,6 +251,26 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
                 <p className="text-sm text-muted-foreground">Payment Status</p>
                 <StatusBadge status={invoice.payment_status} />
               </div>
+              {invoice.payment_method && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Payment Method</p>
+                  <p className="font-medium capitalize">
+                    {invoice.payment_method.replace(/_/g, " ")}
+                  </p>
+                </div>
+              )}
+              {invoice.payment_reference && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Reference Number</p>
+                  <p className="font-medium">{invoice.payment_reference}</p>
+                </div>
+              )}
+              {invoice.payer_account_name && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Payer Account Name</p>
+                  <p className="font-medium">{invoice.payer_account_name}</p>
+                </div>
+              )}
             </div>
 
             {invoice.repair_description && (
@@ -284,7 +331,7 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
                     <span>{formatCurrency(paymentSummary.change)}</span>
                   </div>
                 )}
-                {paymentSummary.balance > 0 && (
+                {invoice.payment_status !== "paid" && paymentSummary.balance > 0 && (
                   <div className="flex justify-between text-sm">
                     <span>Balance</span>
                     <span>{formatCurrency(paymentSummary.balance)}</span>
@@ -299,54 +346,99 @@ export function InvoiceView({ invoiceId }: InvoiceViewProps) {
       <Card className="print:hidden">
         <CardHeader>
           <CardTitle>Update Payment</CardTitle>
-          <CardDescription>Record payment received for this invoice.</CardDescription>
+          <CardDescription>
+            {invoice.job_orders?.status === "released"
+              ? "Payment cannot be changed because the linked job order is already released."
+              : "Record payment received for this invoice."}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent
+          className={`space-y-4 ${invoice.job_orders?.status === "released" ? "pointer-events-none opacity-60" : ""}`}
+        >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-2">
-              <Label htmlFor="amount_paid">Amount Received</Label>
-              <Input
-                id="amount_paid"
-                type="number"
-                step="0.01"
-                min="0"
-                value={amountPaid}
-                onChange={(e) => setAmountPaid(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Enter cash or payment received. Any amount over the invoice total
-                is treated as change, not balance.
-              </p>
+              <Label>Payment</Label>
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">{isPaid ? "Paid" : "Unpaid"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {invoice.total_amount <= 0
+                      ? "Invoice total is zero"
+                      : isPaid
+                        ? `Full amount: ${formatCurrency(invoice.total_amount)}`
+                        : "Toggle on to mark as fully paid"}
+                  </p>
+                </div>
+                <Switch
+                  checked={isPaid}
+                  disabled={invoice.total_amount <= 0}
+                  onCheckedChange={(checked) => {
+                    setIsPaid(checked);
+                    if (!checked) {
+                      setPaymentMethod("");
+                      setPaymentReference("");
+                      setPayerAccountName("");
+                    }
+                  }}
+                />
+              </div>
             </div>
-            <div className="flex-1 space-y-2">
-              <Label>Payment Method</Label>
-              <Select
-                value={paymentMethod}
-                onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select method" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHODS.map((method) => (
-                    <SelectItem key={method.value} value={method.value}>
-                      {method.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isPaid && (
+              <div className="flex-1 space-y-2">
+                <Label>Payment Method *</Label>
+                <Select
+                  value={paymentMethod || undefined}
+                  onValueChange={(v) => {
+                    setPaymentMethod(v as PaymentMethod);
+                    if (v === "cash") {
+                      setPaymentReference("");
+                      setPayerAccountName("");
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_METHODS.map((method) => (
+                      <SelectItem key={method.value} value={method.value}>
+                        {method.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <Button
               onClick={() => paymentMutation.mutate()}
-              disabled={paymentMutation.isPending}
+              disabled={
+                paymentMutation.isPending || invoice.job_orders?.status === "released"
+              }
             >
-              {paymentMutation.isPending ? "Saving..." : "Update Payment"}
+              {paymentMutation.isPending ? "Saving..." : "Save Payment"}
             </Button>
           </div>
-          {previewSummary.change > 0 && (
-            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
-              Change to give: {formatCurrency(previewSummary.change)}
-            </p>
+          {showPaymentReference && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="payment_reference">Reference Number *</Label>
+                <Input
+                  id="payment_reference"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="Transaction / reference number"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="payer_account_name">Payer Account Name *</Label>
+                <Input
+                  id="payer_account_name"
+                  value={payerAccountName}
+                  onChange={(e) => setPayerAccountName(e.target.value)}
+                  placeholder="Name on the account used to pay"
+                />
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

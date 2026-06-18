@@ -25,6 +25,7 @@ import { getHistory } from "../actions";
 
 interface InventoryHistoryProps {
   inventoryItemId?: string;
+  partName?: string;
 }
 
 const typeLabels: Record<string, string> = {
@@ -39,7 +40,7 @@ const typeColors: Record<string, string> = {
   adjustment: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
 };
 
-export function InventoryHistory({ inventoryItemId }: InventoryHistoryProps) {
+export function InventoryHistory({ inventoryItemId, partName }: InventoryHistoryProps) {
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ["inventory-history", inventoryItemId],
     queryFn: async () => {
@@ -58,7 +59,12 @@ export function InventoryHistory({ inventoryItemId }: InventoryHistoryProps) {
         </CardTitle>
         <CardDescription>
           Recent inventory transactions
-          {inventoryItemId ? " for this item" : " across all items"}.
+          {inventoryItemId
+            ? partName
+              ? ` for ${partName}`
+              : " for this item"
+            : " across all items"}
+          .
         </CardDescription>
       </CardHeader>
       <CardContent>

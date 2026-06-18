@@ -1,40 +1,81 @@
 "use server";
 
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 interface SetupShopInput {
   userId: string;
   fullName: string;
   email: string;
   phone?: string;
-  shopName: string;
-  ownerName: string;
+  shopName?: string;
+  ownerName?: string;
   contactNumber?: string;
   shopEmail?: string;
   address?: string;
 }
 
-export async function setupShop(input: SetupShopInput) {
+interface RegisterShopInput {
+  fullName: string;
+  email: string;
+  password: string;
+  phone?: string;
+  contactNumber?: string;
+  address?: string;
+}
+
+function resolveDefaultShopName(fullName: string, shopName?: string) {
+  const trimmed = shopName?.trim();
+  if (trimmed) return trimmed;
+  return fullName.trim();
+}
+
+async function findUserByEmail(email: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!serviceRoleKey) {
+  if (!url || !serviceRoleKey) {
+    return null;
+  }
+
+  const response = await fetch(
+    `${url}/auth/v1/admin/users?filter=${encodeURIComponent(`email.eq.${email}`)}&per_page=1`,
+    {
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const body = (await response.json()) as { users?: { id: string; email?: string }[] };
+  return body.users?.[0] ?? null;
+}
+
+async function setupShop(input: SetupShopInput) {
+  const supabase = createAdminClient();
+
+  if (!supabase) {
     return { error: "Server configuration error. Missing service role key." };
   }
 
-  const supabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  const ownerName = input.ownerName?.trim() || input.fullName.trim();
+  const shopName = resolveDefaultShopName(input.fullName, input.shopName);
 
   const { data: shop, error: shopError } = await supabase
     .from("shops")
     .insert({
-      shop_name: input.shopName,
-      owner_name: input.ownerName,
+      shop_name: shopName,
+      owner_name: ownerName,
       contact_number: input.contactNumber ?? null,
       email: input.shopEmail ?? input.email,
       address: input.address ?? null,
+      status: "pending",
+      plan: "basic",
     })
     .select("id")
     .single();
@@ -50,6 +91,7 @@ export async function setupShop(input: SetupShopInput) {
     email: input.email,
     phone: input.phone ?? null,
     is_active: true,
+    is_super_admin: false,
   });
 
   if (profileError) {
@@ -77,4 +119,100 @@ export async function setupShop(input: SetupShopInput) {
   }
 
   return { success: true, shopId: shop.id };
+}
+
+async function resolveUserId(
+  supabase: NonNullable<ReturnType<typeof createAdminClient>>,
+  input: RegisterShopInput,
+  email: string
+): Promise<{ userId: string } | { error: string }> {
+  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    email,
+    password: input.password,
+    email_confirm: true,
+    user_metadata: { full_name: input.fullName.trim() },
+  });
+
+  if (authData.user) {
+    return { userId: authData.user.id };
+  }
+
+  const alreadyRegistered =
+    authError?.message?.toLowerCase().includes("already") ||
+    authError?.message?.toLowerCase().includes("registered");
+
+  if (!alreadyRegistered) {
+    return { error: authError?.message ?? "Failed to create account." };
+  }
+
+  const existingUser = await findUserByEmail(email);
+  if (!existingUser) {
+    return { error: "This email is already registered. Try signing in instead." };
+  }
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(existingUser.id, {
+    email_confirm: true,
+    password: input.password,
+    user_metadata: { full_name: input.fullName.trim() },
+  });
+
+  if (updateError) {
+    return { error: updateError.message };
+  }
+
+  return { userId: existingUser.id };
+}
+
+export async function registerShopAccount(input: RegisterShopInput) {
+  const supabase = createAdminClient();
+
+  if (!supabase) {
+    return {
+      error:
+        "Server configuration error. Add SUPABASE_SERVICE_ROLE_KEY to .env.local and restart the dev server.",
+    };
+  }
+
+  const email = input.email.trim().toLowerCase();
+  const userResult = await resolveUserId(supabase, input, email);
+
+  if ("error" in userResult) {
+    return { error: userResult.error };
+  }
+
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("shop_id")
+    .eq("id", userResult.userId)
+    .maybeSingle();
+
+  if (!existingProfile?.shop_id) {
+    const shopResult = await setupShop({
+      userId: userResult.userId,
+      fullName: input.fullName,
+      email,
+      phone: input.phone,
+      contactNumber: input.contactNumber,
+      shopEmail: email,
+      address: input.address,
+    });
+
+    if (shopResult.error) {
+      return { error: shopResult.error };
+    }
+  }
+
+  const sessionClient = await createClient();
+  const { error: signInError } = await sessionClient.auth.signInWithPassword({
+    email,
+    password: input.password,
+  });
+
+  if (signInError) {
+    return {
+      error: `Account saved but sign-in failed: ${signInError.message}. Try signing in manually.`,
+    };
+  }
+
+  return { success: true };
 }

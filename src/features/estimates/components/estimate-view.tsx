@@ -61,6 +61,7 @@ import {
   getEstimate,
   rejectEstimate,
   revertEstimateToDraft,
+  type EstimateWithRelations,
 } from "../actions";
 
 interface EstimateViewProps {
@@ -80,6 +81,9 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const { data: availableUnits = [] } = useQuery({
@@ -91,6 +95,9 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
       return result.data;
     },
     enabled: !!estimate?.vehicle_id && estimate.status === "approved",
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const approveMutation = useMutation({
@@ -101,6 +108,9 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
       queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
       toast.success("Estimate approved");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -127,6 +137,9 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
       queryClient.invalidateQueries({ queryKey: ["estimates"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
       toast.success("Estimate moved back to draft");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -138,9 +151,27 @@ export function EstimateView({ estimateId }: EstimateViewProps) {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: (jobOrder) => {
-      queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
+    onSuccess: async (jobOrder) => {
+      queryClient.setQueryData<EstimateWithRelations>(
+        ["estimate", estimateId],
+        (old) =>
+          old
+            ? {
+                ...old,
+                job_orders: {
+                  id: jobOrder.id,
+                  job_order_number: jobOrder.job_order_number,
+                  status: jobOrder.status,
+                },
+              }
+            : old
+      );
+      await queryClient.refetchQueries({ queryKey: ["estimate", estimateId] });
+      queryClient.invalidateQueries({ queryKey: ["estimates"] });
       queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+      queryClient.invalidateQueries({
+        queryKey: ["approved-estimates-for-job-order"],
+      });
       toast.success("Job order created from estimate");
       router.push(`/dashboard/job-orders/${jobOrder.id}`);
     },

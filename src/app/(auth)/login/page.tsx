@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -31,7 +31,45 @@ type LoginForm = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = createClient();
+  const [isSigningOutStaleSession, setIsSigningOutStaleSession] = useState(false);
+  const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function clearBrokenSession() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user || cancelled) {
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (cancelled || (!error && profile)) {
+        return;
+      }
+
+      setIsSigningOutStaleSession(true);
+      await supabase.auth.signOut();
+      if (!cancelled) {
+        setIsSigningOutStaleSession(false);
+        router.refresh();
+      }
+    }
+
+    void clearBrokenSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, supabase]);
 
   const {
     register,
@@ -57,8 +95,11 @@ export default function LoginPage() {
     }
 
     toast.success("Welcome back!");
-    router.replace("/dashboard");
+    router.refresh();
+    window.location.assign("/");
   }
+
+  const formDisabled = isLoading || isSigningOutStaleSession;
 
   return (
     <Card className="border-border/60 shadow-lg">
@@ -77,7 +118,7 @@ export default function LoginPage() {
               type="email"
               placeholder="you@shop.com"
               autoComplete="email"
-              disabled={isLoading}
+              disabled={formDisabled}
               {...register("email")}
             />
             {errors.email && (
@@ -99,7 +140,7 @@ export default function LoginPage() {
               type="password"
               placeholder="••••••••"
               autoComplete="current-password"
-              disabled={isLoading}
+              disabled={formDisabled}
               {...register("password")}
             />
             {errors.password && (
@@ -108,9 +149,11 @@ export default function LoginPage() {
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading && <Loader2 className="animate-spin" />}
-            Sign in
+          <Button type="submit" className="w-full" disabled={formDisabled}>
+            {(isLoading || isSigningOutStaleSession) && (
+              <Loader2 className="animate-spin" />
+            )}
+            {isSigningOutStaleSession ? "Resetting session..." : "Sign in"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}

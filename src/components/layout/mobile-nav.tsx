@@ -13,16 +13,23 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { ShopLogo } from "@/components/shared/shop-logo";
-import { APP_NAME, NAV_ITEMS } from "@/lib/constants";
+import { APP_NAME } from "@/lib/constants";
+import { getVisibleNavItems } from "@/lib/nav-items";
 import { useShop } from "@/lib/hooks/use-shop";
 import { getNavIcon } from "@/lib/nav-icons";
 import { cn } from "@/lib/utils";
 
-export function MobileNav() {
+interface MobileNavProps {
+  isSuperAdmin?: boolean;
+  roleName?: string;
+}
+
+export function MobileNav({ isSuperAdmin = false, roleName = "owner" }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const { shop } = useShop();
-  const brandName = shop?.shop_name ?? APP_NAME;
+  const brandName = isSuperAdmin ? "Platform Admin" : shop?.shop_name ?? APP_NAME;
+  const navItems = getVisibleNavItems(roleName, isSuperAdmin, shop?.plan ?? "basic");
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -35,12 +42,12 @@ export function MobileNav() {
       <SheetContent side="left" className="w-72 p-0">
         <SheetHeader className="border-b px-4 py-4 text-left">
           <SheetTitle className="flex items-center gap-2.5">
-            <ShopLogo logoUrl={shop?.logo_url} alt={brandName} size="sm" />
+            <ShopLogo logoUrl={isSuperAdmin ? null : shop?.logo_url} alt={brandName} size="sm" />
             {brandName}
           </SheetTitle>
         </SheetHeader>
         <nav className="flex flex-col gap-1 p-2">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = getNavIcon(item.icon);
             const isActive =
               pathname === item.href ||

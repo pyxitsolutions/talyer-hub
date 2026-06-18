@@ -174,7 +174,24 @@ export async function generateInvoicePDF(
   doc.text(`Vehicle: ${invoice.vehicles?.brand || ""} ${invoice.vehicles?.model || ""} (${invoice.vehicles?.plate_number || ""})`, 14, y);
   y += 6;
   doc.text(`Payment Status: ${invoice.payment_status.toUpperCase()}`, 14, y);
-  y += 10;
+  y += 6;
+  if (invoice.payment_method) {
+    doc.text(
+      `Payment Method: ${invoice.payment_method.replace(/_/g, " ")}`,
+      14,
+      y
+    );
+    y += 6;
+  }
+  if (invoice.payment_reference) {
+    doc.text(`Reference: ${invoice.payment_reference}`, 14, y);
+    y += 6;
+  }
+  if (invoice.payer_account_name) {
+    doc.text(`Payer Account: ${invoice.payer_account_name}`, 14, y);
+    y += 6;
+  }
+  y += 4;
 
   if (invoice.invoice_items?.length) {
     autoTable(doc, {
@@ -212,7 +229,7 @@ export async function generateJobOrderPDF(
     customers?: Customer;
     vehicles?: Vehicle;
     job_order_parts?: JobOrderPart[];
-    repair_estimates?: Pick<RepairEstimate, "estimate_number"> | null;
+    repair_estimates?: Pick<RepairEstimate, "estimate_number" | "labor_cost"> | null;
   }
 ) {
   const doc = new jsPDF();
@@ -286,10 +303,21 @@ export async function generateJobOrderPDF(
     (sum, part) => sum + Number(part.total_price),
     0
   );
+  const laborCost = Number(
+    jobOrder.labor_cost ?? jobOrder.repair_estimates?.labor_cost ?? 0
+  );
+  const jobOrderTotal = partsTotal + laborCost;
 
   doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
-  doc.text(`Parts Total: ${formatCurrencyForPDF(partsTotal)}`, 140, y);
+  let totalY = y;
+  if (laborCost > 0) {
+    doc.text(`Labor: ${formatCurrencyForPDF(laborCost)}`, 140, totalY);
+    totalY += 6;
+  }
+  doc.text(`Parts Total: ${formatCurrencyForPDF(partsTotal)}`, 140, totalY);
+  totalY += 6;
+  doc.text(`Total: ${formatCurrencyForPDF(jobOrderTotal)}`, 140, totalY);
   doc.setFont("helvetica", "normal");
 
   addSignatureArea(doc, 260);

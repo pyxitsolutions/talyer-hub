@@ -1,4 +1,5 @@
-import { resolveShopId } from "@/lib/auth";
+import { getSessionContext, resolveShopId } from "@/lib/auth";
+import { shopHasProAccess } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 import { UNIT_CATEGORIES } from "@/lib/constants";
 import type { DashboardStats, UnitCategory } from "@/types/database";
@@ -71,14 +72,6 @@ function getLastSixMonths(): { key: string; label: string; start: string; end: s
   }
 
   return months;
-}
-
-async function requireShopId(): Promise<string> {
-  const shopId = await resolveShopId();
-  if (!shopId) {
-    throw new Error("Shop not found");
-  }
-  return shopId;
 }
 
 async function getDashboardStats(shopId: string): Promise<DashboardStats> {
@@ -325,7 +318,11 @@ export async function loadDashboardData(): Promise<
   DashboardActionResult<DashboardData>
 > {
   try {
-    const shopId = await requireShopId();
+    const context = await getSessionContext();
+    const shopId = await resolveShopId();
+    if (!shopId || !context) {
+      return { success: false, error: "Shop is not active yet." };
+    }
 
     const [
       stats,
@@ -342,16 +339,17 @@ export async function loadDashboardData(): Promise<
     ]);
 
     const profitTrend = await getProfitTrend(revenueTrend, expenseTrend);
+    const isPro = shopHasProAccess(context.shop?.plan);
 
     return {
       success: true,
       data: {
         stats,
-        revenueTrend,
-        expenseTrend,
-        profitTrend,
-        repairCategories,
-        topSellingParts,
+        revenueTrend: isPro ? revenueTrend : [],
+        expenseTrend: isPro ? expenseTrend : [],
+        profitTrend: isPro ? profitTrend : [],
+        repairCategories: isPro ? repairCategories : [],
+        topSellingParts: isPro ? topSellingParts : [],
       },
     };
   } catch (err) {

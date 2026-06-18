@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ShopLogo } from "@/components/shared/shop-logo";
-import { APP_NAME, NAV_ITEMS } from "@/lib/constants";
+import { APP_NAME } from "@/lib/constants";
+import { getVisibleNavItems } from "@/lib/nav-items";
 import { useShop } from "@/lib/hooks/use-shop";
 import { getNavIcon } from "@/lib/nav-icons";
 import { cn } from "@/lib/utils";
@@ -14,12 +15,20 @@ import { cn } from "@/lib/utils";
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  isSuperAdmin?: boolean;
+  roleName?: string;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({
+  collapsed,
+  onToggle,
+  isSuperAdmin = false,
+  roleName = "owner",
+}: SidebarProps) {
   const pathname = usePathname();
   const { shop } = useShop();
-  const brandName = shop?.shop_name ?? APP_NAME;
+  const brandName = isSuperAdmin ? "Platform Admin" : shop?.shop_name ?? APP_NAME;
+  const navItems = getVisibleNavItems(roleName, isSuperAdmin, shop?.plan ?? "basic");
 
   return (
     <aside
@@ -29,12 +38,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       )}
     >
       <div className="flex h-14 items-center justify-between px-3">
-        <Link href="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
-          <ShopLogo
-            logoUrl={shop?.logo_url}
-            alt={brandName}
-            size="sm"
-          />
+        <Link
+          href={isSuperAdmin ? "/dashboard/admin/shops" : "/dashboard"}
+          className="flex items-center gap-2.5 overflow-hidden"
+        >
+          <ShopLogo logoUrl={isSuperAdmin ? null : shop?.logo_url} alt={brandName} size="sm" />
           {!collapsed && (
             <span className="truncate text-sm font-semibold text-sidebar-foreground">
               {brandName}
@@ -57,7 +65,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <Separator className="bg-sidebar-border" />
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const Icon = getNavIcon(item.icon);
           const isActive =
             pathname === item.href ||

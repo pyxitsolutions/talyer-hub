@@ -3,15 +3,23 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import { getActivityActor, logActivity } from "@/lib/activity-log";
 import { UNIT_CATEGORIES } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Customer, JobOrder, UnitCategory, UnitReceived, Vehicle } from "@/types/database";
+import { assertCanLogUnitForVehicle } from "@/lib/units/active-unit-log";
+import { assertCustomerIsActive } from "@/features/customers/customer-history";
+import { assertVehicleIsActive } from "@/features/vehicles/vehicle-history";
 import {
   getUnitJobOrderEligibility,
   getUnitLogCutoffDate,
   type UnitJobOrderEligibility,
   buildLastClosedAtByVehicle,
 } from "@/lib/units/job-order-eligibility";
+import {
+  getUnitReceivedDeleteLockReason,
+  getUnitReceivedUpdateLockReason,
+} from "@/lib/units/unit-received-lock";
 import {
   unitReceivedFormSchema,
   type UnitReceivedFormValues,
@@ -20,6 +28,16 @@ import {
 export type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };
+
+function normalizeLinkedJobOrder(
+  jobOrders: unknown
+): Pick<JobOrder, "job_order_number" | "status"> | null {
+  if (!jobOrders) return null;
+  if (Array.isArray(jobOrders)) {
+    return (jobOrders[0] as Pick<JobOrder, "job_order_number" | "status"> | undefined) ?? null;
+  }
+  return jobOrders as Pick<JobOrder, "job_order_number" | "status">;
+}
 
 export interface UnitReceivedWithRelations extends UnitReceived {
   customers?: Customer | null;
@@ -229,6 +247,62 @@ export async function getUnitsAnalytics(): Promise<ActionResult<UnitsAnalytics>>
   }
 }
 
+async function assertCanUpdateUnitReceived(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  unitId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: unit, error } = await supabase
+    .from("units_received")
+    .select("id, job_order_id, job_orders(job_order_number, status)")
+    .eq("id", unitId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (error || !unit) {
+    return { ok: false, error: error?.message ?? "Unit record not found." };
+  }
+
+  const lockReason = getUnitReceivedUpdateLockReason({
+    job_order_id: unit.job_order_id,
+    job_orders: normalizeLinkedJobOrder(unit.job_orders),
+  });
+
+  if (lockReason) {
+    return { ok: false, error: lockReason };
+  }
+
+  return { ok: true };
+}
+
+async function assertCanDeleteUnitReceived(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shopId: string,
+  unitId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: unit, error } = await supabase
+    .from("units_received")
+    .select("id, job_order_id, job_orders(job_order_number, status)")
+    .eq("id", unitId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (error || !unit) {
+    return { ok: false, error: error?.message ?? "Unit record not found." };
+  }
+
+  const lockReason = getUnitReceivedDeleteLockReason({
+    job_order_id: unit.job_order_id,
+    job_orders: normalizeLinkedJobOrder(unit.job_orders),
+  });
+
+  if (lockReason) {
+    return { ok: false, error: lockReason };
+  }
+
+  return { ok: true };
+}
+
 export async function createUnitReceived(
   values: UnitReceivedFormValues
 ): Promise<ActionResult<UnitReceived>> {
@@ -240,6 +314,38 @@ export async function createUnitReceived(
 
     const shopId = await getShopId();
     const supabase = await createClient();
+
+    if (parsed.data.customer_id) {
+      const customerActiveCheck = await assertCustomerIsActive(
+        supabase,
+        shopId,
+        parsed.data.customer_id
+      );
+      if (!customerActiveCheck.ok) {
+        return { success: false, error: customerActiveCheck.error };
+      }
+    }
+
+    if (parsed.data.vehicle_id) {
+      const vehicleActiveCheck = await assertVehicleIsActive(
+        supabase,
+        shopId,
+        parsed.data.vehicle_id
+      );
+      if (!vehicleActiveCheck.ok) {
+        return { success: false, error: vehicleActiveCheck.error };
+      }
+
+      const canLog = await assertCanLogUnitForVehicle(
+        supabase,
+        shopId,
+        parsed.data.vehicle_id
+      );
+
+      if (!canLog.ok) {
+        return { success: false, error: canLog.error };
+      }
+    }
 
     const { data, error } = await supabase
       .from("units_received")
@@ -257,6 +363,36 @@ export async function createUnitReceived(
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    const actor = await getActivityActor();
+    if (actor) {
+      let entityLabel = data.received_date;
+      if (parsed.data.vehicle_id) {
+        const { data: vehicle } = await supabase
+          .from("vehicles")
+          .select("plate_number")
+          .eq("id", parsed.data.vehicle_id)
+          .eq("shop_id", shopId)
+          .maybeSingle();
+        if (vehicle?.plate_number) {
+          entityLabel = vehicle.plate_number;
+        }
+      }
+
+      await logActivity(supabase, {
+        shopId: actor.shopId,
+        userId: actor.userId,
+        actorName: actor.actorName,
+        actorRole: actor.actorRole,
+        actionType: "unit_received",
+        entityType: "units_received",
+        entityId: data.id,
+        entityLabel,
+        summary: entityLabel
+          ? `Logged unit visit for ${entityLabel}`
+          : "Logged unit visit",
+      });
     }
 
     revalidatePath("/dashboard/units-received");
@@ -281,6 +417,44 @@ export async function updateUnitReceived(
 
     const shopId = await getShopId();
     const supabase = await createClient();
+
+    const modifyCheck = await assertCanUpdateUnitReceived(supabase, shopId, id);
+    if (!modifyCheck.ok) {
+      return { success: false, error: modifyCheck.error };
+    }
+
+    if (parsed.data.customer_id) {
+      const customerActiveCheck = await assertCustomerIsActive(
+        supabase,
+        shopId,
+        parsed.data.customer_id
+      );
+      if (!customerActiveCheck.ok) {
+        return { success: false, error: customerActiveCheck.error };
+      }
+    }
+
+    if (parsed.data.vehicle_id) {
+      const vehicleActiveCheck = await assertVehicleIsActive(
+        supabase,
+        shopId,
+        parsed.data.vehicle_id
+      );
+      if (!vehicleActiveCheck.ok) {
+        return { success: false, error: vehicleActiveCheck.error };
+      }
+
+      const canLog = await assertCanLogUnitForVehicle(
+        supabase,
+        shopId,
+        parsed.data.vehicle_id,
+        id
+      );
+
+      if (!canLog.ok) {
+        return { success: false, error: canLog.error };
+      }
+    }
 
     const { data, error } = await supabase
       .from("units_received")
@@ -315,6 +489,11 @@ export async function deleteUnitReceived(id: string): Promise<ActionResult> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
+
+    const modifyCheck = await assertCanDeleteUnitReceived(supabase, shopId, id);
+    if (!modifyCheck.ok) {
+      return { success: false, error: modifyCheck.error };
+    }
 
     const { error } = await supabase
       .from("units_received")

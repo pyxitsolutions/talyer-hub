@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getShopId } from "@/lib/auth";
+import { getProShopId } from "@/lib/auth/plan-guard";
 import { EXPENSE_CATEGORIES } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Expense, ExpenseCategory } from "@/types/database";
@@ -104,7 +104,7 @@ export async function getExpenses(
   search?: string
 ): Promise<ActionResult<Expense[]>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     let query = supabase
@@ -135,7 +135,7 @@ export async function getExpenses(
 
 export async function getExpenseAnalytics(): Promise<ActionResult<ExpenseAnalytics>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const yearlyRange = getDateRange("yearly");
@@ -189,7 +189,7 @@ export async function getExpenseAnalytics(): Promise<ActionResult<ExpenseAnalyti
 
 export async function getPnLSummary(): Promise<ActionResult<PnLSummary>> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
     const monthStart = getMonthStart();
     const monthEnd = getMonthEnd();
@@ -244,7 +244,7 @@ export async function createExpense(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const {
@@ -288,7 +288,7 @@ export async function updateExpense(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -320,7 +320,7 @@ export async function updateExpense(
 
 export async function deleteExpense(id: string): Promise<ActionResult> {
   try {
-    const shopId = await getShopId();
+    const shopId = await getProShopId();
     const supabase = await createClient();
 
     const { error } = await supabase

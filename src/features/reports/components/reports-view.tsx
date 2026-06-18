@@ -1,16 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
+import { Lock } from "lucide-react";
 
 import { DataTable } from "@/components/shared/data-table";
 import { PageHeader } from "@/components/shared/page-header";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  BASIC_REPORT_TYPES,
+  PLAN_PRICING,
+  canAccessReportType,
+  shopHasProAccess,
+  type ReportType,
+} from "@/lib/plans";
+import { useShop } from "@/lib/hooks/use-shop";
 import { formatCurrency } from "@/lib/utils";
-import { generateReport, type ReportData, type ReportType } from "../actions";
+import { generateReport, type ReportData } from "../actions";
 import { ReportExport } from "./report-export";
 import { ReportFilters } from "./report-filters";
 
@@ -23,22 +34,33 @@ function getDefaultDateRange() {
   return { start, end };
 }
 
-const REPORT_TABS: { value: ReportType; label: string }[] = [
-  { value: "sales", label: "Sales" },
-  { value: "expenses", label: "Expenses" },
-  { value: "units", label: "Units Received" },
-  { value: "pnl", label: "Profit & Loss" },
+const REPORT_TABS: { value: ReportType; label: string; proOnly: boolean }[] = [
+  { value: "units", label: "Units Received", proOnly: false },
+  { value: "invoices", label: "Invoices", proOnly: false },
+  { value: "job_orders", label: "Job Orders", proOnly: false },
+  { value: "sales", label: "Sales", proOnly: true },
+  { value: "expenses", label: "Expenses", proOnly: true },
+  { value: "pnl", label: "Profit & Loss", proOnly: true },
 ];
 
+function getDefaultTab(): ReportType {
+  return BASIC_REPORT_TYPES[0];
+}
+
 export function ReportsView() {
+  const { shop, loading: shopLoading } = useShop();
+  const plan = shop?.plan ?? "basic";
+  const isPro = shopHasProAccess(plan);
   const defaults = getDefaultDateRange();
-  const [activeTab, setActiveTab] = useState<ReportType>("sales");
+  const [activeTab, setActiveTab] = useState<ReportType>(() => getDefaultTab());
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
   const [shouldFetch, setShouldFetch] = useState(true);
 
+  const canViewActiveTab = canAccessReportType(plan, activeTab);
+
   const { data: report, isLoading, refetch } = useQuery({
-    queryKey: ["report", activeTab, startDate, endDate],
+    queryKey: ["report", activeTab, startDate, endDate, plan],
     queryFn: async () => {
       const result = await generateReport({
         startDate,
@@ -48,7 +70,7 @@ export function ReportsView() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    enabled: shouldFetch,
+    enabled: shouldFetch && !shopLoading && canViewActiveTab,
   });
 
   const handleGenerate = () => {
@@ -69,7 +91,11 @@ export function ReportsView() {
           (key.toLowerCase().includes("amount") ||
             key.toLowerCase().includes("sales") ||
             key.toLowerCase().includes("expenses") ||
-            key.toLowerCase().includes("profit"))
+            key.toLowerCase().includes("profit") ||
+            key.toLowerCase().includes("total") ||
+            key.toLowerCase().includes("paid") ||
+            key.toLowerCase().includes("billed") ||
+            key.toLowerCase().includes("collected"))
         ) {
           return formatCurrency(val);
         }
@@ -82,10 +108,18 @@ export function ReportsView() {
     <div className="space-y-6">
       <PageHeader
         title="Reports"
-        description="Generate and export reports with date range filters."
+        description={
+          isPro
+            ? "Generate and export operational and financial reports with date range filters."
+            : "Basic reports for your daily workflow. Upgrade to Pro for sales, expenses, P&L, and Excel export."
+        }
         actions={
-          report ? (
-            <ReportExport report={report} filename={`${activeTab}-report-${startDate}`} />
+          report && canViewActiveTab ? (
+            <ReportExport
+              report={report}
+              filename={`${activeTab}-report-${startDate}`}
+              allowExcelExport={isPro}
+            />
           ) : undefined
         }
       />
@@ -97,57 +131,88 @@ export function ReportsView() {
           setShouldFetch(true);
         }}
       >
-        <TabsList>
-          {REPORT_TABS.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
+        <TabsList className="h-auto flex-wrap justify-start">
+          {REPORT_TABS.map((tab) => {
+            const locked = tab.proOnly && !isPro;
+            return (
+              <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+                {locked ? <Lock className="h-3.5 w-3.5 opacity-60" /> : null}
+                {tab.label}
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
 
         {REPORT_TABS.map((tab) => (
           <TabsContent key={tab.value} value={tab.value} className="space-y-6">
-            <ReportFilters
-              startDate={startDate}
-              endDate={endDate}
-              onStartDateChange={setStartDate}
-              onEndDateChange={setEndDate}
-              onGenerate={handleGenerate}
-              isLoading={isLoading}
-            />
-
-            {isLoading ? (
-              <LoadingSpinner />
-            ) : report ? (
+            {tab.proOnly && !isPro ? (
+              <Card className="border-dashed">
+                <CardHeader>
+                  <CardTitle className="text-base">Pro report</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <p>
+                    {tab.label} reports are included in Pro (₱{PLAN_PRICING.pro.price}
+                    /month) along with sales & expenses tracking and Excel export.
+                  </p>
+                  <Button asChild size="sm">
+                    <Link href="/dashboard/upgrade">View plans & upgrade</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
               <>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {Object.entries(report.summary).map(([key, value]) => (
-                    <Card key={key}>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                          {key}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-xl font-semibold">
-                          {typeof value === "number" && key.toLowerCase().includes("margin")
-                            ? `${value}%`
-                            : typeof value === "number" && value >= 100
-                              ? formatCurrency(value)
-                              : String(value)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-
-                <DataTable
-                  columns={columns}
-                  data={report.rows as ReportData["rows"]}
-                  emptyMessage="No data for the selected date range."
+                <ReportFilters
+                  startDate={startDate}
+                  endDate={endDate}
+                  onStartDateChange={setStartDate}
+                  onEndDateChange={setEndDate}
+                  onGenerate={handleGenerate}
+                  isLoading={isLoading}
                 />
+
+                {isLoading ? (
+                  <LoadingSpinner />
+                ) : report ? (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      {Object.entries(report.summary).map(([key, value]) => (
+                        <Card key={key}>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">
+                              {key}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-xl font-semibold">
+                              {typeof value === "number" &&
+                              key.toLowerCase().includes("margin")
+                                ? `${value}%`
+                                : typeof value === "number" &&
+                                    (key.toLowerCase().includes("total") ||
+                                      key.toLowerCase().includes("billed") ||
+                                      key.toLowerCase().includes("collected") ||
+                                      key.toLowerCase().includes("sales") ||
+                                      key.toLowerCase().includes("expenses") ||
+                                      key.toLowerCase().includes("profit") ||
+                                      value >= 100)
+                                  ? formatCurrency(value)
+                                  : String(value)}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+
+                    <DataTable
+                      columns={columns}
+                      data={report.rows as ReportData["rows"]}
+                      emptyMessage="No data for the selected date range."
+                    />
+                  </>
+                ) : null}
               </>
-            ) : null}
+            )}
           </TabsContent>
         ))}
       </Tabs>

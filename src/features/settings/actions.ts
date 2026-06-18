@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { resolveShopId } from "@/lib/auth";
+import { requireOwner } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import type { Shop } from "@/types/database";
 
@@ -37,10 +38,12 @@ export async function saveShopLogoUrl(
   logoUrl: string
 ): Promise<ActionResult<{ logo_url: string }>> {
   try {
-    const shopId = await resolveShopId();
-    if (!shopId) {
-      return { success: false, error: "Shop not found" };
+    const ownerCheck = await requireOwner();
+    if (!ownerCheck.ok) {
+      return { success: false, error: ownerCheck.error };
     }
+
+    const shopId = ownerCheck.context.shopId!;
 
     if (!logoUrl.startsWith("http")) {
       return { success: false, error: "Invalid logo URL" };
@@ -71,10 +74,12 @@ export async function saveShopLogoUrl(
 
 export async function clearShopLogoUrl(): Promise<ActionResult> {
   try {
-    const shopId = await resolveShopId();
-    if (!shopId) {
-      return { success: false, error: "Shop not found" };
+    const ownerCheck = await requireOwner();
+    if (!ownerCheck.ok) {
+      return { success: false, error: ownerCheck.error };
     }
+
+    const shopId = ownerCheck.context.shopId!;
 
     const supabase = await createClient();
     const { error } = await supabase
@@ -134,10 +139,12 @@ export async function updateShopSettings(
       return { success: false, error: parsed.error.errors[0].message };
     }
 
-    const shopId = await resolveShopId();
-    if (!shopId) {
-      return { success: false, error: "Shop not found" };
+    const ownerCheck = await requireOwner();
+    if (!ownerCheck.ok) {
+      return { success: false, error: ownerCheck.error };
     }
+
+    const shopId = ownerCheck.context.shopId!;
 
     const supabase = await createClient();
 

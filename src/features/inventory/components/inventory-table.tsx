@@ -54,6 +54,7 @@ export function InventoryTable() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | undefined>();
   const [stockOperation, setStockOperation] = useState<StockOperation>("stock_in");
   const [historyItemId, setHistoryItemId] = useState<string | undefined>();
+  const [activeTab, setActiveTab] = useState<"items" | "history">("items");
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["inventory", search],
@@ -161,6 +162,11 @@ export function InventoryTable() {
     setStockOpen(true);
   };
 
+  const openItemHistory = (item: InventoryItem) => {
+    setHistoryItemId(item.id);
+    setActiveTab("history");
+  };
+
   const isLowStock = (item: InventoryItem) => item.quantity <= item.reorder_level;
 
   const columns = useMemo<ColumnDef<InventoryItem>[]>(
@@ -224,11 +230,7 @@ export function InventoryTable() {
                 <SlidersHorizontal className="mr-2 h-4 w-4" />
                 Adjust
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setHistoryItemId(row.original.id);
-                }}
-              >
+              <DropdownMenuItem onClick={() => openItemHistory(row.original)}>
                 <History className="mr-2 h-4 w-4" />
                 View History
               </DropdownMenuItem>
@@ -287,7 +289,15 @@ export function InventoryTable() {
         </div>
       )}
 
-      <Tabs defaultValue="items">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value as "items" | "history");
+          if (value === "items") {
+            setHistoryItemId(undefined);
+          }
+        }}
+      >
         <TabsList>
           <TabsTrigger value="items">All Items</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -307,7 +317,10 @@ export function InventoryTable() {
         </TabsContent>
 
         <TabsContent value="history">
-          <InventoryHistory inventoryItemId={historyItemId} />
+          <InventoryHistory
+            inventoryItemId={historyItemId}
+            partName={items.find((item) => item.id === historyItemId)?.part_name}
+          />
         </TabsContent>
       </Tabs>
 

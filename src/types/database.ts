@@ -8,7 +8,14 @@ export type ExpenseCategory =
   | "shop_expenses" | "food" | "kitchen_supplies" | "electricity" | "water"
   | "internet" | "rent" | "salary_expenses" | "weekly_salary" | "monthly_salary" | "yearly_salary";
 export type SaleType = "parts" | "materials" | "labor";
-export type RoleName = "owner" | "service_advisor" | "technician" | "cashier";
+export type ShopStatus = "pending" | "active" | "disabled" | "rejected";
+export type ShopPlan = "basic" | "pro";
+export type RoleName =
+  | "owner"
+  | "service_advisor"
+  | "technician"
+  | "cashier"
+  | "super_admin";
 
 export interface Shop {
   id: string;
@@ -18,6 +25,10 @@ export interface Shop {
   email: string | null;
   address: string | null;
   logo_url: string | null;
+  status: ShopStatus;
+  plan: ShopPlan;
+  approved_at: string | null;
+  approved_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +41,7 @@ export interface Profile {
   avatar_url: string | null;
   phone: string | null;
   is_active: boolean;
+  is_super_admin: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -59,6 +71,7 @@ export interface Customer {
   contact_number: string | null;
   address: string | null;
   email: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +88,7 @@ export interface Vehicle {
   chassis_number: string | null;
   engine_number: string | null;
   color: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
   customers?: Customer;
@@ -129,6 +143,7 @@ export interface JobOrder {
   date_completed: string | null;
   status: JobOrderStatus;
   repair_description: string | null;
+  labor_cost: number;
   created_at: string;
   updated_at: string;
   customers?: Customer;
@@ -168,6 +183,8 @@ export interface Invoice {
   total_amount: number;
   amount_paid: number;
   payment_method: PaymentMethod | null;
+  payment_reference: string | null;
+  payer_account_name: string | null;
   payment_status: PaymentStatus;
   technician_name: string | null;
   verification_code: string;
@@ -258,6 +275,21 @@ export interface SalesRecord {
   updated_at: string;
 }
 
+export interface ActivityLog {
+  id: string;
+  shop_id: string;
+  user_id: string;
+  actor_name: string;
+  actor_role: string | null;
+  action_type: string;
+  entity_type: string;
+  entity_id: string | null;
+  entity_label: string | null;
+  summary: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface DashboardStats {
   dailyUnitsReceived: number;
   monthlyUnitsReceived: number;
@@ -298,6 +330,7 @@ export interface Database {
       units_received: TableDef<UnitReceived>;
       expenses: TableDef<Expense>;
       sales_records: TableDef<SalesRecord>;
+      activity_logs: TableDef<ActivityLog>;
     };
     Views: {
       [_ in never]: never;

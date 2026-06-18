@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Car, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Car, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { DeleteDialog } from "@/components/shared/delete-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,22 +26,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { VehicleDialog } from "@/features/vehicles/components/vehicle-dialog";
+import { VehicleRemoveDialog } from "@/features/vehicles/components/vehicle-remove-dialog";
 import {
   createVehicle,
-  deleteVehicle,
-  getCustomersForSelect,
   updateVehicle,
 } from "@/features/vehicles/actions";
-import type { VehicleFormValues } from "@/features/vehicles/schemas";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import type { Vehicle } from "@/types/database";
 import {
   getCustomer,
   getCustomerHistory,
+  getCustomersForSelect,
   updateCustomer,
 } from "../actions";
-import type { CustomerFormValues } from "../schemas";
+import { CustomerRemoveDialog } from "./customer-remove-dialog";
 import { CustomerDialog } from "./customer-dialog";
+import type { CustomerFormValues } from "../schemas";
+import type { VehicleFormValues } from "@/features/vehicles/schemas";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import type { Vehicle } from "@/types/database";
 
 interface CustomerDetailProps {
   customerId: string;
@@ -51,7 +52,8 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [vehicleDialogOpen, setVehicleDialogOpen] = useState(false);
-  const [deleteVehicleOpen, setDeleteVehicleOpen] = useState(false);
+  const [removeVehicleOpen, setRemoveVehicleOpen] = useState(false);
+  const [removeCustomerOpen, setRemoveCustomerOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | undefined>();
 
   const { data: customer, isLoading } = useQuery({
@@ -129,20 +131,22 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteVehicleMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const result = await deleteVehicle(id);
-      if (!result.success) throw new Error(result.error);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      setDeleteVehicleOpen(false);
-      setSelectedVehicle(undefined);
-      toast.success("Vehicle deleted successfully");
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+  const handleVehicleRemoveSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles-list"] });
+    setRemoveVehicleOpen(false);
+    setSelectedVehicle(undefined);
+  };
+
+  const handleCustomerRemoveSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["customers"] });
+    queryClient.invalidateQueries({ queryKey: ["customers-select"] });
+    queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicles-list"] });
+    setRemoveCustomerOpen(false);
+  };
 
   const handleVehicleSubmit = async (values: VehicleFormValues) => {
     if (selectedVehicle) {
@@ -173,15 +177,43 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           </Link>
         </Button>
         <PageHeader
-          title={customer.full_name}
+          title={
+            <span className="flex items-center gap-2">
+              {customer.full_name}
+              {customer.is_active === false && (
+                <Badge variant="secondary">Deactivated</Badge>
+              )}
+            </span>
+          }
           description={`Customer #${customer.customer_number}`}
           className="flex-1"
-        >
-          <Button variant="outline" onClick={() => setEditOpen(true)}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit
-          </Button>
-        </PageHeader>
+          actions={
+            <div className="flex gap-2">
+              {customer.is_active !== false && (
+                <Button variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => setRemoveCustomerOpen(true)}
+              >
+                {customer.is_active === false ? (
+                  <>
+                    <Undo2 className="mr-2 h-4 w-4" />
+                    Reactivate
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove
+                  </>
+                )}
+              </Button>
+            </div>
+          }
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -236,6 +268,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               setSelectedVehicle(undefined);
               setVehicleDialogOpen(true);
             }}
+            disabled={customer.is_active === false}
           >
             <Plus className="mr-2 h-4 w-4" />
             Add Vehicle
@@ -257,10 +290,18 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               </TableHeader>
               <TableBody>
                 {customer.vehicles.map((vehicle) => (
-                  <TableRow key={vehicle.id}>
-                    <TableCell className="font-medium">
-                      {vehicle.plate_number}
-                    </TableCell>
+                  <TableRow
+                  key={vehicle.id}
+                  className={vehicle.is_active === false ? "opacity-70" : undefined}
+                >
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <span>{vehicle.plate_number}</span>
+                      {vehicle.is_active === false && (
+                        <Badge variant="secondary">Deactivated</Badge>
+                      )}
+                    </div>
+                  </TableCell>
                     <TableCell>
                       {vehicle.brand} {vehicle.model}
                     </TableCell>
@@ -268,26 +309,41 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     <TableCell>{vehicle.color ?? "—"}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setSelectedVehicle(vehicle);
-                            setVehicleDialogOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setSelectedVehicle(vehicle);
-                            setDeleteVehicleOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {customer.is_active !== false &&
+                          vehicle.is_active !== false && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setSelectedVehicle(vehicle);
+                                setVehicleDialogOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                        {(vehicle.is_active !== false ||
+                          customer.is_active !== false) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={
+                              vehicle.is_active === false
+                                ? "Reactivate vehicle"
+                                : "Remove vehicle"
+                            }
+                            onClick={() => {
+                              setSelectedVehicle(vehicle);
+                              setRemoveVehicleOpen(true);
+                            }}
+                          >
+                            {vehicle.is_active === false ? (
+                              <Undo2 className="h-4 w-4" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -438,15 +494,19 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         }
       />
 
-      <DeleteDialog
-        open={deleteVehicleOpen}
-        onOpenChange={setDeleteVehicleOpen}
-        title="Delete Vehicle"
-        description={`Are you sure you want to delete vehicle ${selectedVehicle?.plate_number}?`}
-        onConfirm={() =>
-          selectedVehicle && deleteVehicleMutation.mutate(selectedVehicle.id)
-        }
-        isLoading={deleteVehicleMutation.isPending}
+      <CustomerRemoveDialog
+        open={removeCustomerOpen}
+        onOpenChange={setRemoveCustomerOpen}
+        customer={customer}
+        onSuccess={handleCustomerRemoveSuccess}
+      />
+
+      <VehicleRemoveDialog
+        open={removeVehicleOpen}
+        onOpenChange={setRemoveVehicleOpen}
+        vehicle={selectedVehicle}
+        customerIsActive={customer.is_active !== false}
+        onSuccess={handleVehicleRemoveSuccess}
       />
     </div>
   );

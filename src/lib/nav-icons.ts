@@ -6,7 +6,9 @@ import {
   LayoutDashboard,
   Package,
   Receipt,
+  ScrollText,
   Settings,
+  Shield,
   TrendingUp,
   Truck,
   Users,
@@ -28,7 +30,9 @@ const iconMap: Record<string, LucideIcon> = {
   Wallet,
   History,
   BarChart3,
+  ScrollText,
   Settings,
+  Shield,
 };
 
 export function getNavIcon(name: string): LucideIcon {

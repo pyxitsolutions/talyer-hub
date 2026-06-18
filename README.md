@@ -1,6 +1,6 @@
-# PyX AutoCare Pro
+# TalyerHub
 
-Auto care shop management system by PyX. Production-ready, SaaS-ready automotive workshop ERP built with Next.js, TypeScript, Supabase, and shadcn/ui. Supports multiple repair shops through multi-tenant architecture with Row Level Security.
+Auto care shop management system for talyers. Production-ready, SaaS-ready automotive workshop ERP built with Next.js, TypeScript, Supabase, and shadcn/ui. Supports multiple repair shops through multi-tenant architecture with Row Level Security.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
@@ -154,4 +154,4 @@ npm run lint     # ESLint
 
 ## License
 
-Private — PyX AutoCare Pro. Commercial use for auto care shop management.
+Private — TalyerHub. Commercial use for auto care shop management.

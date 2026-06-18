@@ -1,5 +1,6 @@
-import Image from "next/image";
 import Link from "next/link";
+import { AppLogo } from "@/components/shared/app-logo";
+import { LegalLinks } from "@/components/legal/legal-links";
 import { APP_NAME } from "@/lib/constants";
 
 export default function AuthLayout({
@@ -16,22 +17,16 @@ export default function AuthLayout({
 
       <Link
         href="/login"
-        className="relative mb-8 flex items-center gap-2.5 text-foreground transition-opacity hover:opacity-80"
+        className="relative mb-8 flex items-center gap-3 text-foreground transition-opacity hover:opacity-80"
       >
-        <Image
-          src="/favicon.png"
-          alt={APP_NAME}
-          width={40}
-          height={40}
-          className="rounded-xl"
-          priority
-        />
-        <span className="text-xl font-semibold tracking-tight">{APP_NAME}</span>
+        <AppLogo alt={APP_NAME} size="xl" />
+        <span className="text-2xl font-semibold tracking-tight">{APP_NAME}</span>
       </Link>
 
       <div className="relative w-full max-w-md">{children}</div>
 
-      <p className="relative mt-8 text-center text-xs text-muted-foreground">
+      <LegalLinks className="relative mt-6" />
+      <p className="relative mt-3 text-center text-xs text-muted-foreground">
         &copy; {new Date().getFullYear()} {APP_NAME}. All rights reserved.
       </p>
     </div>

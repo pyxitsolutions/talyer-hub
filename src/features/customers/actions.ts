@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import {
+  assertCanDeactivateCustomer,
+  findOpenEstimatesForCustomer,
+  type OpenEstimateSummary,
+} from "@/lib/estimates/active-estimate";
 import { createClient } from "@/lib/supabase/server";
 import { generateNumber } from "@/lib/utils";
 import type {
@@ -14,8 +19,13 @@ import type {
 } from "@/types/database";
 import {
   customerFormSchema,
+  resolveCustomerFullName,
   type CustomerFormValues,
 } from "./schemas";
+import {
+  customerHasHistory,
+  getCustomerHistoryCounts,
+} from "./customer-history";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -31,8 +41,23 @@ export interface CustomerWithVehicles extends Customer {
   vehicles: Vehicle[];
 }
 
+export interface CustomerRemovalInfo {
+  hasHistory: boolean;
+  isActive: boolean;
+  canDeactivate: boolean;
+  openEstimates: OpenEstimateSummary[];
+  historyCounts: {
+    estimates: number;
+    jobOrders: number;
+    invoices: number;
+    unitsReceived: number;
+    vehiclesWithHistory: number;
+  };
+}
+
 export async function getCustomers(
-  search?: string
+  search?: string,
+  options?: { activeOnly?: boolean }
 ): Promise<ActionResult<Customer[]>> {
   try {
     const shopId = await getShopId();
@@ -43,6 +68,10 @@ export async function getCustomers(
       .select("*")
       .eq("shop_id", shopId)
       .order("created_at", { ascending: false });
+
+    if (options?.activeOnly) {
+      query = query.eq("is_active", true);
+    }
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
@@ -135,8 +164,8 @@ export async function createCustomer(
       .insert({
         shop_id: shopId,
         customer_number: customerNumber,
-        full_name: parsed.data.full_name,
-        contact_number: parsed.data.contact_number || null,
+        full_name: resolveCustomerFullName(parsed.data),
+        contact_number: parsed.data.contact_number?.trim() || null,
         email: parsed.data.email || null,
         address: parsed.data.address || null,
       })
@@ -170,11 +199,30 @@ export async function updateCustomer(
     const shopId = await getShopId();
     const supabase = await createClient();
 
+    const { data: existing, error: existingError } = await supabase
+      .from("customers")
+      .select("is_active")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (existingError || !existing) {
+      return { success: false, error: "Customer not found" };
+    }
+
+    if (!existing.is_active) {
+      return {
+        success: false,
+        error:
+          "This customer is inactive. Reactivate them before making changes.",
+      };
+    }
+
     const { data, error } = await supabase
       .from("customers")
       .update({
-        full_name: parsed.data.full_name,
-        contact_number: parsed.data.contact_number || null,
+        full_name: resolveCustomerFullName(parsed.data),
+        contact_number: parsed.data.contact_number?.trim() || null,
         email: parsed.data.email || null,
         address: parsed.data.address || null,
       })
@@ -203,6 +251,26 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     const shopId = await getShopId();
     const supabase = await createClient();
 
+    const { data: customer, error: customerError } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (customerError || !customer) {
+      return { success: false, error: "Customer not found" };
+    }
+
+    const historyCounts = await getCustomerHistoryCounts(supabase, shopId, id);
+    if (customerHasHistory(historyCounts)) {
+      return {
+        success: false,
+        error:
+          "This customer has service history and cannot be deleted. Deactivate them instead to hide them from new transactions.",
+      };
+    }
+
     const { error } = await supabase
       .from("customers")
       .delete()
@@ -214,11 +282,175 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     }
 
     revalidatePath("/dashboard/customers");
+    revalidatePath("/dashboard/vehicles");
     return { success: true, data: undefined };
   } catch (err) {
     return {
       success: false,
       error: err instanceof Error ? err.message : "Failed to delete customer",
+    };
+  }
+}
+
+export async function deactivateCustomer(
+  id: string
+): Promise<ActionResult<Customer>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const deactivateCheck = await assertCanDeactivateCustomer(
+      supabase,
+      shopId,
+      id
+    );
+    if (!deactivateCheck.ok) {
+      return { success: false, error: deactivateCheck.error };
+    }
+
+    const { data, error } = await supabase
+      .from("customers")
+      .update({ is_active: false })
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return {
+        success: false,
+        error: error?.message ?? "Customer not found",
+      };
+    }
+
+    await supabase
+      .from("vehicles")
+      .update({ is_active: false })
+      .eq("customer_id", id)
+      .eq("shop_id", shopId);
+
+    revalidatePath("/dashboard/customers");
+    revalidatePath("/dashboard/vehicles");
+    revalidatePath(`/dashboard/customers/${id}`);
+    return { success: true, data: data as Customer };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Failed to deactivate customer",
+    };
+  }
+}
+
+export async function reactivateCustomer(
+  id: string
+): Promise<ActionResult<Customer>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("customers")
+      .update({ is_active: true })
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return {
+        success: false,
+        error: error?.message ?? "Customer not found",
+      };
+    }
+
+    await supabase
+      .from("vehicles")
+      .update({ is_active: true })
+      .eq("customer_id", id)
+      .eq("shop_id", shopId);
+
+    revalidatePath("/dashboard/customers");
+    revalidatePath("/dashboard/vehicles");
+    revalidatePath(`/dashboard/customers/${id}`);
+    return { success: true, data: data as Customer };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Failed to reactivate customer",
+    };
+  }
+}
+
+export async function getCustomerRemovalInfo(
+  id: string
+): Promise<ActionResult<CustomerRemovalInfo>> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const { data: customer, error: customerError } = await supabase
+      .from("customers")
+      .select("id, is_active")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (customerError || !customer) {
+      return { success: false, error: "Customer not found" };
+    }
+
+    const historyCounts = await getCustomerHistoryCounts(supabase, shopId, id);
+    const openEstimates = await findOpenEstimatesForCustomer(
+      supabase,
+      shopId,
+      id
+    );
+    const hasHistory = customerHasHistory(historyCounts);
+
+    return {
+      success: true,
+      data: {
+        hasHistory,
+        isActive: customer.is_active,
+        canDeactivate: hasHistory && openEstimates.length === 0,
+        openEstimates,
+        historyCounts,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Failed to check customer history",
+    };
+  }
+}
+
+export async function getCustomersForSelect(): Promise<
+  ActionResult<Pick<Customer, "id" | "full_name" | "customer_number">[]>
+> {
+  try {
+    const shopId = await getShopId();
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("customers")
+      .select("id, full_name, customer_number")
+      .eq("shop_id", shopId)
+      .eq("is_active", true)
+      .order("full_name");
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data: data ?? [] };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to fetch customers",
     };
   }
 }

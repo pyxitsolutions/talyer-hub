@@ -26,7 +26,7 @@ interface InvoiceDialogProps {
   vehicles: Pick<Vehicle, "id" | "plate_number" | "brand" | "model" | "customer_id">[];
   inventory: Pick<InventoryItem, "id" | "part_number" | "part_name" | "selling_price" | "quantity">[];
   jobOrders?: Pick<JobOrder, "id" | "job_order_number" | "status">[];
-  initialJobOrderId?: string;
+  createFormKey?: number;
   onSubmit: (values: InvoiceFormValues) => Promise<void>;
   isLoading?: boolean;
   editLoading?: boolean;
@@ -40,7 +40,7 @@ export function InvoiceDialog({
   vehicles,
   inventory,
   jobOrders,
-  initialJobOrderId,
+  createFormKey = 0,
   onSubmit,
   isLoading = false,
   editLoading = false,
@@ -58,7 +58,7 @@ export function InvoiceDialog({
           <DialogDescription>
             {invoice
               ? "Update invoice details and line items."
-              : "Create a new billing invoice. Parts linked to inventory will be deducted automatically."}
+              : "Select a completed job order to create an invoice. Customer, parts, and labor are copied automatically."}
           </DialogDescription>
         </DialogHeader>
         {editLoading ? (
@@ -67,10 +67,9 @@ export function InvoiceDialog({
           </p>
         ) : (
         <InvoiceForm
-          key={invoice?.id ?? initialJobOrderId ?? "new"}
+          key={invoice?.id ?? `create-${createFormKey}`}
           invoice={invoice}
           jobOrders={jobOrders}
-          initialJobOrderId={initialJobOrderId}
           customers={customers}
           vehicles={vehicles}
           inventory={inventory}

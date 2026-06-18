@@ -24,7 +24,7 @@ export function PrintDocumentLayout({
   children,
 }: PrintDocumentLayoutProps) {
   return (
-    <article className="hidden print:block text-black">
+    <article className="print-document hidden print:block text-black">
       <header className="mb-6 border-b-2 border-black pb-4">
         <div className="flex items-start gap-4">
           <ShopLogo

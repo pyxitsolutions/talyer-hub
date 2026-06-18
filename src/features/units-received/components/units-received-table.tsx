@@ -20,6 +20,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { UNIT_CATEGORIES } from "@/lib/constants";
 import { unitJobOrderEligibilityLabel } from "@/lib/units/job-order-eligibility";
+import {
+  getUnitReceivedDeleteLockReason,
+  getUnitReceivedUpdateLockReason,
+} from "@/lib/units/unit-received-lock";
 import { cn, formatDate } from "@/lib/utils";
 import { getCustomers } from "@/features/customers/actions";
 import { getVehicles } from "@/features/vehicles/actions";
@@ -82,16 +86,16 @@ export function UnitsReceivedTable() {
   const { data: customers = [] } = useQuery({
     queryKey: ["customers-list"],
     queryFn: async () => {
-      const result = await getCustomers();
+      const result = await getCustomers(undefined, { activeOnly: true });
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
   });
 
   const { data: vehicles = [] } = useQuery({
-    queryKey: ["vehicles-list"],
+    queryKey: ["vehicles-list", "active"],
     queryFn: async () => {
-      const result = await getVehicles();
+      const result = await getVehicles(undefined, { activeOnly: true });
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
@@ -106,6 +110,7 @@ export function UnitsReceivedTable() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["units-received"] });
       queryClient.invalidateQueries({ queryKey: ["units-analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["units-for-job-order"] });
       toast.success("Unit received logged successfully");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -120,6 +125,7 @@ export function UnitsReceivedTable() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["units-received"] });
       queryClient.invalidateQueries({ queryKey: ["units-analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["units-for-job-order"] });
       toast.success("Record updated successfully");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -133,6 +139,7 @@ export function UnitsReceivedTable() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["units-received"] });
       queryClient.invalidateQueries({ queryKey: ["units-analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["units-for-job-order"] });
       setDeleteOpen(false);
       setSelectedUnit(undefined);
       toast.success("Record deleted successfully");
@@ -200,37 +207,52 @@ export function UnitsReceivedTable() {
       {
         id: "actions",
         header: "",
-        cell: ({ row }) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreHorizontal className="h-4 w-4" />
-                <span className="sr-only">Open menu</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => {
-                  setSelectedUnit(row.original);
-                  setDialogOpen(true);
-                }}
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => {
-                  setSelectedUnit(row.original);
-                  setDeleteOpen(true);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ),
+        cell: ({ row }) => {
+          const updateLockReason = getUnitReceivedUpdateLockReason(row.original);
+          const deleteLockReason = getUnitReceivedDeleteLockReason(row.original);
+
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span className="sr-only">Open menu</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={!!updateLockReason}
+                  onClick={() => {
+                    if (updateLockReason) {
+                      toast.error(updateLockReason);
+                      return;
+                    }
+                    setSelectedUnit(row.original);
+                    setDialogOpen(true);
+                  }}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  disabled={!!deleteLockReason}
+                  onClick={() => {
+                    if (deleteLockReason) {
+                      toast.error(deleteLockReason);
+                      return;
+                    }
+                    setSelectedUnit(row.original);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
       },
     ],
     []
@@ -240,7 +262,7 @@ export function UnitsReceivedTable() {
     <div className="space-y-6">
       <PageHeader
         title="Units Received"
-        description="Log each shop visit. Only open, current unit logs can be used for new job orders."
+        description="Log each shop visit. A vehicle cannot be logged again until the previous visit is released."
       >
         <Button
           onClick={() => {

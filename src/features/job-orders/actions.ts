@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { getShopId } from "@/lib/auth";
+import { getActivityActor, logActivity } from "@/lib/activity-log";
 import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { markEstimateReleased } from "@/lib/estimates/active-estimate";
 import { createClient } from "@/lib/supabase/server";
@@ -418,6 +419,107 @@ function getInventoryParts(
     }));
 }
 
+function normalizeJobOrderPartForCompare(part: {
+  part_name: string;
+  quantity: number | string;
+  unit_price: number | string;
+  inventory_item_id?: string | null;
+}) {
+  return {
+    part_name: part.part_name.trim(),
+    quantity: Math.round(Number(part.quantity)),
+    unit_price: Number(part.unit_price),
+    inventory_item_id: part.inventory_item_id || null,
+  };
+}
+
+function jobOrderPartCompareKey(part: ReturnType<typeof normalizeJobOrderPartForCompare>) {
+  return `${part.part_name}|${part.quantity}|${part.unit_price}|${part.inventory_item_id ?? ""}`;
+}
+
+function areJobOrderPartsEqual(
+  existing: {
+    part_name: string;
+    quantity: number | string;
+    unit_price: number | string;
+    inventory_item_id: string | null;
+  }[],
+  updated: JobOrderPartValues[]
+): boolean {
+  const existingKeys = existing
+    .map(normalizeJobOrderPartForCompare)
+    .map(jobOrderPartCompareKey)
+    .sort();
+  const updatedKeys = updated
+    .map(normalizeJobOrderPartForCompare)
+    .map(jobOrderPartCompareKey)
+    .sort();
+
+  return JSON.stringify(existingKeys) === JSON.stringify(updatedKeys);
+}
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed || null;
+}
+
+function normalizeOptionalDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value.split("T")[0];
+}
+
+function resolveJobOrderDateCompleted(
+  status: JobOrderFormValues["status"],
+  dateCompleted: string | undefined
+): string | null {
+  if (status === "completed" || status === "released") {
+    return (
+      normalizeOptionalDate(dateCompleted) ??
+      new Date().toISOString().split("T")[0]
+    );
+  }
+
+  return null;
+}
+
+function hasNonStatusJobOrderChanges(
+  existing: {
+    estimate_id: string | null;
+    customer_id: string;
+    vehicle_id: string;
+    assigned_technician: string | null;
+    date_started: string | null;
+    date_completed: string | null;
+    repair_description: string | null;
+    labor_cost: number | null;
+  },
+  parsed: JobOrderFormValues,
+  existingParts: {
+    part_name: string;
+    quantity: number | string;
+    unit_price: number | string;
+    inventory_item_id: string | null;
+  }[]
+): boolean {
+  const laborChanged =
+    Number(existing.labor_cost ?? 0) !== Number(parsed.labor_cost);
+  const partsChanged = !areJobOrderPartsEqual(existingParts, parsed.parts);
+
+  return (
+    parsed.customer_id !== existing.customer_id ||
+    parsed.vehicle_id !== existing.vehicle_id ||
+    (parsed.estimate_id || null) !== (existing.estimate_id || null) ||
+    normalizeOptionalText(parsed.assigned_technician) !==
+      normalizeOptionalText(existing.assigned_technician) ||
+    normalizeOptionalDate(parsed.date_started) !==
+      normalizeOptionalDate(existing.date_started) ||
+    normalizeOptionalText(parsed.repair_description) !==
+      normalizeOptionalText(existing.repair_description) ||
+    laborChanged ||
+    partsChanged
+  );
+}
+
 async function insertJobOrderParts(
   supabase: Awaited<ReturnType<typeof createClient>>,
   shopId: string,
@@ -523,28 +625,30 @@ export async function getJobOrder(
   }
 }
 
-export async function getCustomersForSelect(): Promise<
-  ActionResult<Pick<Customer, "id" | "full_name" | "customer_number">[]>
-> {
+export async function getJobOrderLinkedInvoice(
+  jobOrderId: string
+): Promise<ActionResult<{ invoice_number: string } | null>> {
   try {
     const shopId = await getShopId();
     const supabase = await createClient();
 
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, full_name, customer_number")
-      .eq("shop_id", shopId)
-      .order("full_name");
+    const { data, error } = await getLinkedInvoice(supabase, shopId, jobOrderId);
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: data ?? [] };
+    return {
+      success: true,
+      data: data ? { invoice_number: data.invoice_number } : null,
+    };
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Failed to fetch customers",
+      error:
+        err instanceof Error
+          ? err.message
+          : "Failed to check linked invoice",
     };
   }
 }
@@ -561,6 +665,7 @@ export async function getVehiclesByCustomer(
       .select("*")
       .eq("customer_id", customerId)
       .eq("shop_id", shopId)
+      .eq("is_active", true)
       .order("plate_number");
 
     if (error) {
@@ -825,7 +930,7 @@ export async function createJobOrder(
 
     const { data: estimate, error: estimateError } = await supabase
       .from("repair_estimates")
-      .select("id, customer_id, vehicle_id, status")
+      .select("id, customer_id, vehicle_id, status, labor_cost")
       .eq("id", parsed.data.estimate_id)
       .eq("shop_id", shopId)
       .single();
@@ -855,15 +960,8 @@ export async function createJobOrder(
       };
     }
 
-    if (
-      parsed.data.customer_id !== estimate.customer_id ||
-      parsed.data.vehicle_id !== estimate.vehicle_id
-    ) {
-      return {
-        success: false,
-        error: "Customer and vehicle must match the selected estimate",
-      };
-    }
+    const customerId = estimate.customer_id;
+    const vehicleId = estimate.vehicle_id;
 
     let unitReceivedId: string;
 
@@ -872,8 +970,8 @@ export async function createJobOrder(
         supabase,
         shopId,
         parsed.data.unit_received_id,
-        parsed.data.customer_id,
-        parsed.data.vehicle_id
+        customerId,
+        vehicleId
       );
 
       if (!unitCheck.ok) {
@@ -885,8 +983,8 @@ export async function createJobOrder(
       const unitResolution = await resolveEligibleUnitReceivedId(
         supabase,
         shopId,
-        parsed.data.customer_id,
-        parsed.data.vehicle_id
+        customerId,
+        vehicleId
       );
 
       if (!unitResolution.ok) {
@@ -907,6 +1005,10 @@ export async function createJobOrder(
 
     const jobOrderNumber = generateNumber("JO", count ?? 0);
     const inventoryParts = getInventoryParts(parsed.data.parts);
+    const dateCompleted = resolveJobOrderDateCompleted(
+      parsed.data.status,
+      parsed.data.date_completed
+    );
 
     const { data, error } = await supabase
       .from("job_orders")
@@ -914,13 +1016,14 @@ export async function createJobOrder(
         shop_id: shopId,
         job_order_number: jobOrderNumber,
         estimate_id: parsed.data.estimate_id || null,
-        customer_id: parsed.data.customer_id,
-        vehicle_id: parsed.data.vehicle_id,
+        customer_id: customerId,
+        vehicle_id: vehicleId,
         assigned_technician: parsed.data.assigned_technician || null,
         date_started: parsed.data.date_started || null,
-        date_completed: parsed.data.date_completed || null,
+        date_completed: dateCompleted,
         status: parsed.data.status,
         repair_description: parsed.data.repair_description || null,
+        labor_cost: Number(parsed.data.labor_cost),
       })
       .select()
       .single();
@@ -929,26 +1032,35 @@ export async function createJobOrder(
       return { success: false, error: error.message };
     }
 
-    await insertJobOrderParts(supabase, shopId, data.id, parsed.data.parts);
+    try {
+      await insertJobOrderParts(supabase, shopId, data.id, parsed.data.parts);
 
-    if (inventoryParts.length > 0) {
-      await deductInventory(
+      if (inventoryParts.length > 0) {
+        await deductInventory(
+          supabase,
+          shopId,
+          inventoryParts,
+          "job_order",
+          data.id
+        );
+      }
+
+      await linkUnitReceivedToJobOrder(
         supabase,
         shopId,
-        inventoryParts,
-        "job_order",
-        data.id
+        unitReceivedId,
+        data.id,
+        customerId,
+        vehicleId
       );
+    } catch (postInsertError) {
+      await supabase
+        .from("job_orders")
+        .delete()
+        .eq("id", data.id)
+        .eq("shop_id", shopId);
+      throw postInsertError;
     }
-
-    await linkUnitReceivedToJobOrder(
-      supabase,
-      shopId,
-      unitReceivedId,
-      data.id,
-      parsed.data.customer_id,
-      parsed.data.vehicle_id
-    );
 
     revalidatePath("/dashboard/job-orders");
     revalidatePath("/dashboard/units-received");
@@ -980,7 +1092,7 @@ export async function updateJobOrder(
 
     const { data: existingParts, error: partsError } = await supabase
       .from("job_order_parts")
-      .select("inventory_item_id, quantity")
+      .select("part_name, quantity, unit_price, inventory_item_id")
       .eq("job_order_id", id)
       .eq("shop_id", shopId);
 
@@ -997,13 +1109,65 @@ export async function updateJobOrder(
 
     const { data: existingJobOrder, error: existingError } = await supabase
       .from("job_orders")
-      .select("estimate_id, customer_id, vehicle_id")
+      .select(
+        "estimate_id, customer_id, vehicle_id, status, labor_cost, assigned_technician, date_started, date_completed, repair_description"
+      )
       .eq("id", id)
       .eq("shop_id", shopId)
       .single();
 
     if (existingError || !existingJobOrder) {
       return { success: false, error: "Job order not found" };
+    }
+
+    const { data: linkedInvoice, error: linkedInvoiceError } =
+      await getLinkedInvoice(supabase, shopId, id);
+
+    if (linkedInvoiceError) {
+      return { success: false, error: linkedInvoiceError.message };
+    }
+
+    const lockPartsAndLabor =
+      existingJobOrder.status === "released" || !!linkedInvoice;
+
+    if (linkedInvoice) {
+      if (
+        parsed.data.status === "pending" ||
+        parsed.data.status === "ongoing"
+      ) {
+        return {
+          success: false,
+          error: `Only Completed or Released status is allowed when invoice ${linkedInvoice.invoice_number} is linked.`,
+        };
+      }
+
+      if (
+        hasNonStatusJobOrderChanges(
+          existingJobOrder,
+          parsed.data,
+          existingParts ?? []
+        )
+      ) {
+        return {
+          success: false,
+          error: `Only status can be updated when invoice ${linkedInvoice.invoice_number} is linked.`,
+        };
+      }
+    } else if (lockPartsAndLabor) {
+      const laborChanged =
+        Number(existingJobOrder.labor_cost ?? 0) !==
+        Number(parsed.data.labor_cost);
+      const partsChanged = !areJobOrderPartsEqual(
+        existingParts ?? [],
+        parsed.data.parts
+      );
+
+      if (laborChanged || partsChanged) {
+        return {
+          success: false,
+          error: "Parts and labor cannot be changed on a released job order.",
+        };
+      }
     }
 
     if (existingJobOrder.estimate_id) {
@@ -1055,6 +1219,11 @@ export async function updateJobOrder(
         quantity: Number(p.quantity),
       }));
 
+    const dateCompleted = resolveJobOrderDateCompleted(
+      parsed.data.status,
+      parsed.data.date_completed
+    );
+
     const { data, error } = await supabase
       .from("job_orders")
       .update({
@@ -1063,9 +1232,10 @@ export async function updateJobOrder(
         vehicle_id: parsed.data.vehicle_id,
         assigned_technician: parsed.data.assigned_technician || null,
         date_started: parsed.data.date_started || null,
-        date_completed: parsed.data.date_completed || null,
+        date_completed: dateCompleted,
         status: parsed.data.status,
         repair_description: parsed.data.repair_description || null,
+        labor_cost: Number(parsed.data.labor_cost),
       })
       .eq("id", id)
       .eq("shop_id", shopId)
@@ -1074,6 +1244,26 @@ export async function updateJobOrder(
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (
+      parsed.data.status === "released" &&
+      existingJobOrder.status !== "released"
+    ) {
+      const actor = await getActivityActor();
+      if (actor) {
+        await logActivity(supabase, {
+          shopId: actor.shopId,
+          userId: actor.userId,
+          actorName: actor.actorName,
+          actorRole: actor.actorRole,
+          actionType: "job_order_released",
+          entityType: "job_orders",
+          entityId: data.id,
+          entityLabel: data.job_order_number,
+          summary: `Released job order ${data.job_order_number}`,
+        });
+      }
     }
 
     if (parsed.data.status === "released" && existingJobOrder.estimate_id) {
@@ -1125,7 +1315,13 @@ export async function updateJobOrder(
     revalidatePath(`/dashboard/job-orders/${id}`);
     revalidatePath("/dashboard/inventory");
     revalidatePath("/dashboard");
-    return { success: true, data };
+
+    const refreshed = await getJobOrder(id);
+    if (!refreshed.success) {
+      return { success: true, data: data as JobOrderWithRelations };
+    }
+
+    return { success: true, data: refreshed.data };
   } catch (err) {
     return {
       success: false,
@@ -1142,6 +1338,17 @@ export async function deleteJobOrder(id: string): Promise<ActionResult> {
     const deleteCheck = await assertCanDeleteJobOrder(supabase, shopId, id);
     if (!deleteCheck.ok) {
       return { success: false, error: deleteCheck.error };
+    }
+
+    const { data: jobOrderToDelete, error: jobOrderError } = await supabase
+      .from("job_orders")
+      .select("estimate_id")
+      .eq("id", id)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (jobOrderError) {
+      return { success: false, error: jobOrderError.message };
     }
 
     const { data: existingParts, error: partsError } = await supabase
@@ -1183,6 +1390,11 @@ export async function deleteJobOrder(id: string): Promise<ActionResult> {
 
     revalidatePath("/dashboard/job-orders");
     revalidatePath("/dashboard/inventory");
+    revalidatePath("/dashboard/estimates");
+    revalidatePath("/dashboard/units-received");
+    if (jobOrderToDelete?.estimate_id) {
+      revalidatePath(`/dashboard/estimates/${jobOrderToDelete.estimate_id}`);
+    }
     return { success: true, data: undefined };
   } catch (err) {
     return {
@@ -1294,6 +1506,7 @@ export async function convertFromEstimate(
         date_started: today,
         status: "pending",
         repair_description: estimate.repair_description,
+        labor_cost: Number(estimate.labor_cost),
       })
       .select()
       .single();

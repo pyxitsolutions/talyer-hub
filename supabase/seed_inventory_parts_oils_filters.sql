@@ -1,4 +1,4 @@
--- PyX AutoCare Pro — Seed inventory: oils, filters, and common parts
+-- TalyerHub — Seed inventory: oils, filters, and common parts
 --
 -- Inserts items for EVERY shop in the database.
 -- Safe to re-run: updates name/prices/stock on conflict (same part_number per shop).

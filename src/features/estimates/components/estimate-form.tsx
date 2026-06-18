@@ -120,13 +120,19 @@ export function EstimateForm({
     }
   }, [customerId, onCustomerChange]);
 
-  const handleVehicleChange = (vehicleId: string) => {
+  useEffect(() => {
+    if (!vehicleId) {
+      setValue("chassis_number", "");
+      setValue("engine_number", "");
+      return;
+    }
+
     const vehicle = vehicles.find((v) => v.id === vehicleId);
     if (vehicle) {
       setValue("chassis_number", vehicle.chassis_number ?? "");
       setValue("engine_number", vehicle.engine_number ?? "");
     }
-  };
+  }, [vehicleId, vehicles, setValue]);
 
   const partsCost = (items ?? []).reduce(
     (sum, item) => sum + (Number(item?.quantity) || 0) * (Number(item?.unit_price) || 0),
@@ -157,6 +163,8 @@ export function EstimateForm({
                 onValueChange={(value) => {
                   field.onChange(value);
                   setValue("vehicle_id", "");
+                  setValue("chassis_number", "");
+                  setValue("engine_number", "");
                 }}
               >
                 <SelectTrigger>
@@ -187,10 +195,7 @@ export function EstimateForm({
             render={({ field }) => (
               <Select
                 value={field.value}
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  handleVehicleChange(value);
-                }}
+                onValueChange={field.onChange}
                 disabled={!customerId}
               >
                 <SelectTrigger>
@@ -240,14 +245,32 @@ export function EstimateForm({
 
         <div className="space-y-2">
           <Label htmlFor="chassis_number">Chassis Number</Label>
-          <Input id="chassis_number" {...register("chassis_number")} />
+          <Input
+            id="chassis_number"
+            disabled
+            readOnly
+            placeholder="Select a vehicle first"
+            {...register("chassis_number")}
+          />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="engine_number">Engine Number</Label>
-          <Input id="engine_number" {...register("engine_number")} />
+          <Input
+            id="engine_number"
+            disabled
+            readOnly
+            placeholder="Select a vehicle first"
+            {...register("engine_number")}
+          />
         </div>
       </div>
+
+      {vehicleId && (
+        <p className="text-xs text-muted-foreground">
+          Chassis and engine numbers are taken from the selected vehicle.
+        </p>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="technician_name">Technician</Label>

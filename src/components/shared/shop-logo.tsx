@@ -1,8 +1,8 @@
 "use client";
 
-import { Wrench } from "lucide-react";
 import Image from "next/image";
 
+import { AppLogo } from "@/components/shared/app-logo";
 import { cn } from "@/lib/utils";
 
 const sizeClasses = {
@@ -42,18 +42,10 @@ export function ShopLogo({
   }
 
   return (
-    <div
-      className={cn(
-        boxClass,
-        "flex items-center justify-center rounded-lg bg-primary text-primary-foreground",
-        iconClassName
-      )}
-    >
-      <Wrench
-        className={cn(
-          size === "lg" ? "h-7 w-7" : size === "md" ? "h-5 w-5" : "h-4 w-4"
-        )}
-      />
-    </div>
+    <AppLogo
+      alt={alt}
+      size={size}
+      className={cn(boxClass, "rounded-lg", iconClassName)}
+    />
   );
 }

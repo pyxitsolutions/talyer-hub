@@ -1,7 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
+import {
+  clearSessionQueryCache,
+  resetTenantQueryCache,
+} from "@/lib/query/session-cache";
 
 function makeQueryClient() {
   return new QueryClient({
@@ -25,10 +30,38 @@ function getQueryClient() {
   return browserQueryClient;
 }
 
+function AuthQuerySync() {
+  const queryClient = useQueryClient();
+
+  React.useEffect(() => {
+    const supabase = createClient();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        clearSessionQueryCache(queryClient);
+        return;
+      }
+
+      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        resetTenantQueryCache(queryClient);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [queryClient]);
+
+  return null;
+}
+
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthQuerySync />
+      {children}
+    </QueryClientProvider>
   );
 }

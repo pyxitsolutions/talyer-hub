@@ -1,14 +1,32 @@
 import type { ExpenseCategory, UnitCategory } from "@/types/database";
 
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "PyX AutoCare Pro";
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "TalyerHub";
+export const APP_LOGO_PATH = "/talyerhub-logo-ph.png";
 export const APP_DESCRIPTION =
-  "Professional auto care shop management system by PyX";
+  "Auto care shop management system for talyers";
+export const LEGAL_ENTITY_NAME =
+  process.env.NEXT_PUBLIC_LEGAL_ENTITY_NAME || "PyX IT Solutions";
+export const SUPPORT_EMAIL =
+  process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "pyxitsolutions@gmail.com";
+export const DATA_RETENTION_YEARS = 3;
 
 export const CURRENCY_CODE =
   process.env.NEXT_PUBLIC_CURRENCY_CODE || "PHP";
 export const CURRENCY_LOCALE =
   process.env.NEXT_PUBLIC_CURRENCY_LOCALE || "en-PH";
 export const CURRENCY_SYMBOL = CURRENCY_CODE === "PHP" ? "₱" : CURRENCY_CODE;
+
+export const SUPER_ADMIN_NAV_ITEMS = [
+  { title: "Shop Management", href: "/dashboard/admin/shops", icon: "Shield" },
+  { title: "Reports", href: "/dashboard/admin/reports", icon: "BarChart3" },
+] as const;
+
+export const SHOP_STATUSES = [
+  { value: "pending", label: "Pending Approval" },
+  { value: "active", label: "Active" },
+  { value: "disabled", label: "Deactivated" },
+  { value: "rejected", label: "Rejected" },
+] as const;
 
 export const NAV_ITEMS = [
   { title: "Dashboard", href: "/dashboard", icon: "LayoutDashboard" },
@@ -23,6 +41,7 @@ export const NAV_ITEMS = [
   { title: "Expenses", href: "/dashboard/expenses", icon: "Wallet" },
   { title: "Service History", href: "/dashboard/service-history", icon: "History" },
   { title: "Reports", href: "/dashboard/reports", icon: "BarChart3" },
+  { title: "Activity Log", href: "/dashboard/activity-log", icon: "ScrollText" },
   { title: "Settings", href: "/dashboard/settings", icon: "Settings" },
 ] as const;
 
@@ -69,7 +88,6 @@ export const JOB_ORDER_STATUSES = [
 
 export const PAYMENT_STATUSES = [
   { value: "unpaid", label: "Unpaid" },
-  { value: "partial", label: "Partial" },
   { value: "paid", label: "Paid" },
 ] as const;
 
@@ -82,10 +100,28 @@ export const PAYMENT_METHODS = [
 ] as const;
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
+  super_admin: ["platform_admin"],
   owner: ["*"],
   service_advisor: [
     "customers", "vehicles", "estimates", "job_orders", "units_received", "service_history", "reports",
   ],
   technician: ["job_orders", "estimates", "vehicles", "service_history"],
   cashier: ["invoices", "customers", "sales", "reports"],
+};
+
+export const ROLE_LABELS: Record<string, string> = {
+  owner: "Owner",
+  service_advisor: "Service Advisor",
+  technician: "Technician",
+  cashier: "Cashier",
+  super_admin: "Super Admin",
+};
+
+export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
+  unit_received: "Unit Received",
+  estimate_created: "Estimate Created",
+  estimate_approved: "Estimate Approved",
+  job_order_released: "Job Order Released",
+  invoice_created: "Invoice Created",
+  invoice_paid: "Invoice Paid",
 };

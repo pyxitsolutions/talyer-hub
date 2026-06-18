@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Eye, FileText, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/shared/data-table";
@@ -21,19 +21,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useInvalidateDashboard } from "@/lib/hooks/use-invalidate-dashboard";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   createInvoice,
   deleteInvoice,
-  getCustomersForSelect,
   getInventoryForSelect,
   getInvoice,
   getInvoices,
@@ -42,12 +34,28 @@ import {
   updateInvoice,
   type InvoiceListItem,
 } from "../actions";
+import { getCustomersForSelect } from "@/features/customers/actions";
 import type { InvoiceFormValues } from "../schemas";
 import { InvoiceDialog } from "./invoice-dialog";
 
-function getInvoiceDeleteBlockReason(invoice: InvoiceListItem): string | null {
+function getInvoiceReleasedLockReason(
+  invoice: InvoiceListItem
+): string | null {
   if (invoice.job_orders?.status === "released") {
-    return `Cannot delete: job order ${invoice.job_orders.job_order_number} is already released.`;
+    return `Cannot modify: job order ${invoice.job_orders.job_order_number} is already released.`;
+  }
+
+  return null;
+}
+
+function getInvoiceDeleteBlockReason(invoice: InvoiceListItem): string | null {
+  const releasedLock = getInvoiceReleasedLockReason(invoice);
+  if (releasedLock) {
+    return releasedLock.replace("modify", "delete");
+  }
+
+  if (invoice.payment_status === "paid" || invoice.amount_paid > 0) {
+    return "Cannot delete: mark the invoice as unpaid first before deleting.";
   }
 
   return null;
@@ -63,8 +71,7 @@ export function InvoiceTable() {
   const [selectedInvoice, setSelectedInvoice] = useState<
     InvoiceListItem | undefined
   >();
-  const [selectedJobOrderId, setSelectedJobOrderId] = useState("");
-  const [prefillJobOrderId, setPrefillJobOrderId] = useState<string | undefined>();
+  const [createFormKey, setCreateFormKey] = useState(0);
 
   useEffect(() => {
     setPage(1);
@@ -77,6 +84,8 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const invoices = invoicesResult?.items ?? [];
@@ -122,7 +131,9 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    staleTime: 60 * 1000,
+    enabled: dialogOpen,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: invoiceForEdit, isLoading: editLoading } = useQuery({
@@ -133,6 +144,8 @@ export function InvoiceTable() {
       return result.data;
     },
     enabled: dialogOpen && !!selectedInvoice?.id,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const createMutation = useMutation({
@@ -141,10 +154,23 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: () => {
+    onSuccess: (invoice) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["job-orders"] });
       queryClient.invalidateQueries({ queryKey: ["job-orders-select"] });
+      if (invoice.job_order_id) {
+        queryClient.setQueryData(
+          ["job-order-linked-invoice", invoice.job_order_id],
+          { invoice_number: invoice.invoice_number }
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["job-order-linked-invoice", invoice.job_order_id],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["job-order", invoice.job_order_id],
+        });
+      }
       invalidateDashboard();
       toast.success("Invoice created successfully");
     },
@@ -157,8 +183,19 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["invoice", updated.id], updated);
+      queryClient.invalidateQueries({ queryKey: ["invoice", updated.id, "edit"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["sales"] });
+      if (updated.job_order_id) {
+        queryClient.invalidateQueries({
+          queryKey: ["job-order", updated.job_order_id],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["job-order-linked-invoice", updated.job_order_id],
+        });
+      }
       invalidateDashboard();
       toast.success("Invoice updated successfully");
     },
@@ -171,7 +208,22 @@ export function InvoiceTable() {
       if (!result.success) throw new Error(result.error);
     },
     onSuccess: () => {
+      const linkedJobOrderId = selectedInvoice?.job_order_id;
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["job-orders-select"] });
+      if (linkedJobOrderId) {
+        queryClient.setQueryData(
+          ["job-order-linked-invoice", linkedJobOrderId],
+          null
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["job-order-linked-invoice", linkedJobOrderId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["job-order", linkedJobOrderId],
+        });
+      }
       invalidateDashboard();
       setDeleteOpen(false);
       setSelectedInvoice(undefined);
@@ -183,7 +235,6 @@ export function InvoiceTable() {
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (!open) {
-      setPrefillJobOrderId(undefined);
       setSelectedInvoice(undefined);
     }
   };
@@ -246,7 +297,13 @@ export function InvoiceTable() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem
+                disabled={!!getInvoiceReleasedLockReason(row.original)}
                 onClick={() => {
+                  const blockReason = getInvoiceReleasedLockReason(row.original);
+                  if (blockReason) {
+                    toast.error(blockReason);
+                    return;
+                  }
                   setSelectedInvoice(row.original);
                   setDialogOpen(true);
                 }}
@@ -287,7 +344,8 @@ export function InvoiceTable() {
         <Button
           onClick={() => {
             setSelectedInvoice(undefined);
-            setPrefillJobOrderId(undefined);
+            setCreateFormKey((key) => key + 1);
+            void queryClient.refetchQueries({ queryKey: ["job-orders-select"] });
             setDialogOpen(true);
           }}
         >
@@ -296,40 +354,11 @@ export function InvoiceTable() {
         </Button>
       </PageHeader>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder="Search by invoice number or technician..."
-          className="flex-1"
-        />
-        <div className="flex gap-2">
-          <Select value={selectedJobOrderId} onValueChange={setSelectedJobOrderId}>
-            <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="From job order..." />
-            </SelectTrigger>
-            <SelectContent>
-              {jobOrders.map((jo) => (
-                <SelectItem key={jo.id} value={jo.id}>
-                  {jo.job_order_number} ({jo.status})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            disabled={!selectedJobOrderId}
-            onClick={() => {
-              setSelectedInvoice(undefined);
-              setPrefillJobOrderId(selectedJobOrderId);
-              setDialogOpen(true);
-            }}
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            Create from Job Order
-          </Button>
-        </div>
-      </div>
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by invoice number or technician..."
+      />
 
       <DataTable
         columns={columns}
@@ -349,7 +378,7 @@ export function InvoiceTable() {
         onOpenChange={handleDialogOpenChange}
         invoice={selectedInvoice ? invoiceForEdit : undefined}
         jobOrders={jobOrders}
-        initialJobOrderId={prefillJobOrderId}
+        createFormKey={createFormKey}
         customers={customers}
         vehicles={vehicles}
         inventory={inventory}

@@ -1,15 +1,20 @@
 "use server";
 
-import { getShopId } from "@/lib/auth";
+import { getSessionContext, getShopId } from "@/lib/auth";
+import {
+  canAccessReportType,
+  getUpgradeMessage,
+  type ReportType,
+} from "@/lib/plans";
 import { EXPENSE_CATEGORIES, UNIT_CATEGORIES } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { ExpenseCategory, SaleType, UnitCategory } from "@/types/database";
 
+export type { ReportType } from "@/lib/plans";
+
 export type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };
-
-export type ReportType = "sales" | "expenses" | "units" | "pnl";
 
 export interface ReportFilters {
   startDate: string;
@@ -62,7 +67,14 @@ export async function generateReport(
   filters: ReportFilters
 ): Promise<ActionResult<ReportData>> {
   try {
+    const context = await getSessionContext();
     const shopId = await getShopId();
+    const plan = context?.shop?.plan ?? "basic";
+
+    if (!canAccessReportType(plan, filters.reportType)) {
+      return { success: false, error: getUpgradeMessage() };
+    }
+
     const supabase = await createClient();
     const { startDate, endDate, reportType } = filters;
 
@@ -191,6 +203,121 @@ export async function generateReport(
         return {
           success: true,
           data: { title: "Units Received Report", rows, summary },
+        };
+      }
+
+      case "invoices": {
+        const { data, error } = await supabase
+          .from("invoices")
+          .select(
+            "invoice_number, invoice_date, total_amount, amount_paid, payment_status, customers(full_name), vehicles(plate_number, brand, model)"
+          )
+          .eq("shop_id", shopId)
+          .gte("invoice_date", startDate)
+          .lte("invoice_date", endDate)
+          .order("invoice_date", { ascending: false });
+
+        if (error) return { success: false, error: error.message };
+
+        const rows = (data ?? []).map((row) => {
+          const customer = row.customers as unknown as { full_name: string } | null;
+          const vehicle = row.vehicles as unknown as {
+            plate_number: string;
+            brand: string;
+            model: string;
+          } | null;
+
+          return {
+            Date: row.invoice_date,
+            "Invoice #": row.invoice_number,
+            Customer: customer?.full_name ?? "—",
+            Vehicle: vehicle
+              ? `${vehicle.brand} ${vehicle.model} (${vehicle.plate_number})`
+              : "—",
+            Total: row.total_amount,
+            Paid: row.amount_paid,
+            Status: row.payment_status,
+          };
+        });
+
+        const totalBilled = (data ?? []).reduce(
+          (sum, r) => sum + Number(r.total_amount),
+          0
+        );
+        const totalPaid = (data ?? []).reduce(
+          (sum, r) => sum + Number(r.amount_paid),
+          0
+        );
+        const paidCount = (data ?? []).filter((r) => r.payment_status === "paid").length;
+
+        return {
+          success: true,
+          data: {
+            title: "Invoices Report",
+            rows,
+            summary: {
+              "Total Invoices": rows.length,
+              "Total Billed": totalBilled,
+              "Total Collected": totalPaid,
+              "Fully Paid": paidCount,
+            },
+          },
+        };
+      }
+
+      case "job_orders": {
+        const { data, error } = await supabase
+          .from("job_orders")
+          .select(
+            "job_order_number, date_started, date_completed, status, assigned_technician, customers(full_name), vehicles(plate_number, brand, model)"
+          )
+          .eq("shop_id", shopId)
+          .gte("date_started", startDate)
+          .lte("date_started", endDate)
+          .order("date_started", { ascending: false });
+
+        if (error) return { success: false, error: error.message };
+
+        const rows = (data ?? []).map((row) => {
+          const customer = row.customers as unknown as { full_name: string } | null;
+          const vehicle = row.vehicles as unknown as {
+            plate_number: string;
+            brand: string;
+            model: string;
+          } | null;
+
+          return {
+            Started: row.date_started,
+            "Job Order #": row.job_order_number,
+            Customer: customer?.full_name ?? "—",
+            Vehicle: vehicle
+              ? `${vehicle.brand} ${vehicle.model} (${vehicle.plate_number})`
+              : "—",
+            Technician: row.assigned_technician ?? "—",
+            Status: row.status,
+            Completed: row.date_completed ?? "—",
+          };
+        });
+
+        const statusCounts = new Map<string, number>();
+        for (const row of data ?? []) {
+          statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1);
+        }
+
+        const summary: Record<string, string | number> = {
+          "Total Job Orders": rows.length,
+        };
+        for (const [status, count] of statusCounts) {
+          summary[status.charAt(0).toUpperCase() + status.slice(1)] = count;
+        }
+
+        return {
+          success: true,
+          data: {
+            title: "Job Orders Report",
+            rows,
+            summary,
+          },
         };
       }
 

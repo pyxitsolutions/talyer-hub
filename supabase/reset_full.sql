@@ -1,35 +1,28 @@
--- PyX AutoCare Pro — Full tenant reset (DESTRUCTIVE)
+-- TalyerHub — Full tenant reset (DESTRUCTIVE)
 --
--- Deletes ALL shops and shop-linked data (CASCADE).
--- Keeps: auth.users, profiles (shop_id cleared), roles table
--- Clears: user_roles, all business data, shop settings
+-- Prefer: node scripts/reset-database.mjs  (deletes auth + data via API)
+-- Or run: supabase/reset_all_including_accounts.sql in SQL Editor
 --
--- After this:
---   1. Users can register again at /register, OR
---   2. Manually link profile to a new shop, OR
---   3. Run seed.sql then link your auth user to the demo shop
+-- Deletes ALL shops, business data, login accounts, and profiles.
+-- Re-seeds roles only. Does NOT remove schema/migrations.
 --
--- How to run:
---   Supabase Dashboard → SQL Editor → paste → Run
---
--- WARNING: This does NOT delete auth.users accounts.
--- To remove login accounts: Supabase → Authentication → Users (manual).
+-- After reset:
+--   1. Register again at /register
+--   2. Super admin: UPDATE profiles SET is_super_admin = true WHERE email = 'you@example.com';
+--   3. Optional demo data: run supabase/seed.sql
 
 BEGIN;
 
--- Detach profiles before shop delete (shop_id is ON DELETE SET NULL anyway)
-UPDATE public.profiles
-SET shop_id = NULL,
-    updated_at = NOW()
-WHERE shop_id IS NOT NULL;
-
+DELETE FROM public.user_roles;
 DELETE FROM public.shops;
+DELETE FROM auth.users;
+
+INSERT INTO public.roles (id, name, description) VALUES
+  ('a0000000-0000-0000-0000-000000000001', 'owner', 'Shop owner with full access'),
+  ('a0000000-0000-0000-0000-000000000002', 'service_advisor', 'Service advisor managing estimates and customers'),
+  ('a0000000-0000-0000-0000-000000000003', 'technician', 'Technician performing repairs'),
+  ('a0000000-0000-0000-0000-000000000004', 'cashier', 'Cashier handling billing and payments'),
+  ('a0000000-0000-0000-0000-000000000005', 'super_admin', 'Platform administrator with cross-shop access')
+ON CONFLICT (name) DO NOTHING;
 
 COMMIT;
-
--- Optional: reload demo roles + sample shop data
--- Run supabase/seed.sql in a separate SQL Editor tab after this script.
-
--- Optional: clear uploaded shop logos from Storage
--- Supabase → Storage → shop-logos → delete files manually,
--- or use the Storage API / dashboard.

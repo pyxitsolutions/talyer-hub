@@ -24,6 +24,7 @@ export const jobOrderFormSchema = z.object({
   date_completed: z.string().optional().or(z.literal("")),
   status: z.enum(["pending", "ongoing", "completed", "released"]),
   repair_description: z.string().max(2000).optional().or(z.literal("")),
+  labor_cost: z.coerce.number().min(0, "Labor cost must be 0 or more"),
   parts: z.array(jobOrderPartSchema),
 });
 

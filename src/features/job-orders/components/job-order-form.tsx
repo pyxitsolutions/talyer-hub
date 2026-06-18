@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { toast } from "sonner";
 
 import { getEstimate } from "@/features/estimates/actions";
+import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +27,7 @@ import type { Customer, InventoryItem, JobOrder, Vehicle } from "@/types/databas
 import {
   getApprovedEstimatesForJobOrder,
   getAvailableUnitsForJobOrder,
+  getJobOrderLinkedInvoice,
 } from "../actions";
 import {
   jobOrderCreateFormSchema,
@@ -41,6 +44,7 @@ interface JobOrderFormProps {
       inventory_item_id: string | null;
     }[];
     repair_estimates?: JobOrder["repair_estimates"] | null;
+    invoices?: { invoice_number: string }[] | null;
   };
   customers: Pick<Customer, "id" | "full_name" | "customer_number">[];
   vehicles: Vehicle[];
@@ -56,6 +60,17 @@ interface JobOrderFormProps {
   releaseBlockMessage?: string;
   initialEstimateId?: string;
   active?: boolean;
+  dialogDataLoading?: boolean;
+}
+
+function getEmbeddedLinkedInvoice(
+  invoices?: { invoice_number: string }[] | { invoice_number: string } | null
+): { invoice_number: string } | null {
+  if (!invoices) return null;
+  if (Array.isArray(invoices)) {
+    return invoices[0] ?? null;
+  }
+  return invoices.invoice_number ? invoices : null;
 }
 
 function StepHeading({
@@ -95,14 +110,17 @@ export function JobOrderForm({
   releaseBlockMessage,
   initialEstimateId,
   active = true,
+  dialogDataLoading = false,
 }: JobOrderFormProps) {
   const isCreate = !jobOrder;
+  const [isEstimatePrefillLoading, setIsEstimatePrefillLoading] = useState(false);
 
   const {
     register,
     handleSubmit,
     control,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<JobOrderFormValues>({
     resolver: zodResolver(isCreate ? jobOrderCreateFormSchema : jobOrderFormSchema),
@@ -116,6 +134,9 @@ export function JobOrderForm({
       date_completed: jobOrder?.date_completed ?? "",
       status: jobOrder?.status ?? "pending",
       repair_description: jobOrder?.repair_description ?? "",
+      labor_cost: Number(
+        jobOrder?.labor_cost ?? jobOrder?.repair_estimates?.labor_cost ?? 0
+      ),
       parts:
         jobOrder?.job_order_parts?.map((part) => ({
           part_name: part.part_name,
@@ -135,19 +156,34 @@ export function JobOrderForm({
   const unitReceivedId = useWatch({ control, name: "unit_received_id" });
   const customerId = useWatch({ control, name: "customer_id" });
   const vehicleId = useWatch({ control, name: "vehicle_id" });
+  const status = useWatch({ control, name: "status" });
   const parts = useWatch({ control, name: "parts" });
+  const laborCost = Number(useWatch({ control, name: "labor_cost" }) ?? 0);
+  const isWorkFinished = status === "completed" || status === "released";
 
-  const { data: approvedEstimates = [] } = useQuery({
-    queryKey: ["approved-estimates-for-job-order"],
-    queryFn: async () => {
-      const result = await getApprovedEstimatesForJobOrder();
-      if (!result.success) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: isCreate && active,
-  });
+  const {
+    data: approvedEstimates = [],
+    isFetched: approvedEstimatesLoaded,
+    isLoading: isLoadingApprovedEstimates,
+    isFetching: isFetchingApprovedEstimates,
+  } = useQuery({
+      queryKey: ["approved-estimates-for-job-order"],
+      queryFn: async () => {
+        const result = await getApprovedEstimatesForJobOrder();
+        if (!result.success) throw new Error(result.error);
+        return result.data;
+      },
+      enabled: isCreate && active,
+      staleTime: 0,
+      refetchOnMount: "always",
+    });
 
-  const { data: availableUnits = [] } = useQuery({
+  const {
+    data: availableUnits = [],
+    refetch: refetchAvailableUnits,
+    isLoading: isLoadingAvailableUnits,
+    isFetching: isFetchingAvailableUnits,
+  } = useQuery({
     queryKey: ["units-for-job-order", vehicleId],
     queryFn: async () => {
       const result = await getAvailableUnitsForJobOrder(vehicleId);
@@ -155,13 +191,47 @@ export function JobOrderForm({
       return result.data;
     },
     enabled: !!vehicleId && isCreate && active,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (active && isCreate && vehicleId) {
+      void refetchAvailableUnits();
+    }
+  }, [active, isCreate, vehicleId, refetchAvailableUnits]);
+
+  const { data: linkedInvoiceCheck, isFetched: linkedInvoiceChecked } =
+    useQuery({
+      queryKey: ["job-order-linked-invoice", jobOrder?.id],
+      queryFn: async () => {
+        const result = await getJobOrderLinkedInvoice(jobOrder!.id);
+        if (!result.success) throw new Error(result.error);
+        return result.data;
+      },
+      enabled: !isCreate && !!jobOrder?.id && active,
+      staleTime: 0,
+      refetchOnMount: "always",
+      refetchOnWindowFocus: true,
+    });
 
   const selectedEstimate = approvedEstimates.find(
     (estimate) => estimate.id === estimateId
   );
+  const selectedEstimateId = selectedEstimate?.id;
   const selectedUnit = availableUnits.find((unit) => unit.id === unitReceivedId);
   const multipleUnits = availableUnits.length > 1;
+  const lockedVehicleFromList = vehicles.find((vehicle) => vehicle.id === vehicleId);
+  const lockedCustomerLabel =
+    selectedEstimate?.customers?.full_name ??
+    customers.find((customer) => customer.id === customerId)?.full_name ??
+    "";
+  const lockedVehicleLabel = selectedEstimate?.vehicles
+    ? `${selectedEstimate.vehicles.plate_number} — ${selectedEstimate.vehicles.brand} ${selectedEstimate.vehicles.model}`
+    : lockedVehicleFromList
+      ? `${lockedVehicleFromList.plate_number} — ${lockedVehicleFromList.brand} ${lockedVehicleFromList.model}`
+      : "";
 
   const getUnitCategoryLabel = (category: string) =>
     UNIT_CATEGORIES.find((item) => item.value === category)?.label ?? category;
@@ -173,35 +243,109 @@ export function JobOrderForm({
   }, [customerId, onCustomerChange]);
 
   useEffect(() => {
-    if (!isCreate || !estimateId) return;
+    if (!isCreate || !selectedEstimateId) return;
+
+    const estimate = approvedEstimates.find(
+      (item) => item.id === selectedEstimateId
+    );
+    if (!estimate) return;
+
+    setValue("customer_id", estimate.customer_id, {
+      shouldValidate: true,
+    });
+    setValue("vehicle_id", estimate.vehicle_id, {
+      shouldValidate: true,
+    });
+    onCustomerChange(estimate.customer_id);
+  }, [
+    approvedEstimates,
+    isCreate,
+    onCustomerChange,
+    selectedEstimateId,
+    setValue,
+  ]);
+
+  useEffect(() => {
+    if (!isCreate || !approvedEstimatesLoaded || !estimateId) return;
+
+    if (approvedEstimates.some((estimate) => estimate.id === estimateId)) {
+      return;
+    }
+
+    setValue("estimate_id", "", { shouldValidate: true });
+    setValue("customer_id", "");
+    setValue("vehicle_id", "");
+    setValue("assigned_technician", "");
+    setValue("repair_description", "");
+    setValue("date_started", "");
+    setValue("unit_received_id", "");
+    setValue("labor_cost", 0);
+    replace([]);
+    toast.error(
+      "Only approved estimates can be used for job orders. Approve the estimate first."
+    );
+  }, [
+    approvedEstimates,
+    approvedEstimatesLoaded,
+    estimateId,
+    isCreate,
+    replace,
+    setValue,
+  ]);
+
+  useEffect(() => {
+    if (!isCreate || !selectedEstimateId) {
+      setIsEstimatePrefillLoading(false);
+      return;
+    }
 
     let cancelled = false;
+    setIsEstimatePrefillLoading(true);
 
-    getEstimate(estimateId).then((result) => {
-      if (cancelled || !result.success) return;
+    getEstimate(selectedEstimateId)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.success) {
+          toast.error(result.error);
+          return;
+        }
 
-      const estimate = result.data;
-      setValue("customer_id", estimate.customer_id);
-      setValue("vehicle_id", estimate.vehicle_id);
-      setValue("assigned_technician", estimate.technician_name ?? "");
-      setValue("repair_description", estimate.repair_description ?? "");
-      setValue("date_started", new Date().toISOString().split("T")[0]);
-      setValue("unit_received_id", "");
-      replace(
-        (estimate.repair_estimate_items ?? []).map((item) => ({
-          part_name: item.part_name,
-          quantity: Math.round(Number(item.quantity)),
-          unit_price: Number(item.unit_price),
-          inventory_item_id: item.inventory_item_id ?? "",
-        }))
-      );
-      onCustomerChange(estimate.customer_id);
-    });
+        const estimate = result.data;
+        if (estimate.status !== "approved") {
+          toast.error("Only approved estimates can be used for job orders");
+          setValue("estimate_id", "", { shouldValidate: true });
+          setValue("labor_cost", 0);
+          replace([]);
+          return;
+        }
+
+        setValue("labor_cost", Number(estimate.labor_cost));
+        setValue("customer_id", estimate.customer_id, { shouldValidate: true });
+        setValue("vehicle_id", estimate.vehicle_id, { shouldValidate: true });
+        setValue("assigned_technician", estimate.technician_name ?? "");
+        setValue("repair_description", estimate.repair_description ?? "");
+        setValue("date_started", new Date().toISOString().split("T")[0]);
+        setValue("unit_received_id", "");
+        replace(
+          (estimate.repair_estimate_items ?? []).map((item) => ({
+            part_name: item.part_name,
+            quantity: Math.round(Number(item.quantity)),
+            unit_price: Number(item.unit_price),
+            inventory_item_id: item.inventory_item_id ?? "",
+          }))
+        );
+        onCustomerChange(estimate.customer_id);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsEstimatePrefillLoading(false);
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [estimateId, isCreate, onCustomerChange, replace, setValue]);
+  }, [isCreate, onCustomerChange, replace, selectedEstimateId, setValue]);
 
   useEffect(() => {
     if (!isCreate || !vehicleId) {
@@ -236,16 +380,97 @@ export function JobOrderForm({
       sum + (Number(part?.quantity) || 0) * (Number(part?.unit_price) || 0),
     0
   );
+  const jobOrderTotal = partsTotal + laborCost;
 
   const hasUnitLog = availableUnits.length > 0;
   const unitSelected = !multipleUnits || !!unitReceivedId;
   const canSubmitCreate =
-    !isCreate || (!!estimateId && hasUnitLog && unitSelected);
+    !isCreate ||
+    (!!selectedEstimateId &&
+      !isEstimatePrefillLoading &&
+      hasUnitLog &&
+      unitSelected);
   const lockCustomerVehicle =
-    (isCreate && !!estimateId) || (!isCreate && !!jobOrder?.estimate_id);
+    (isCreate && !!selectedEstimate) || (!isCreate && !!jobOrder?.estimate_id);
+  const linkedInvoice = linkedInvoiceChecked
+    ? linkedInvoiceCheck
+    : getEmbeddedLinkedInvoice(jobOrder?.invoices);
+  const hasLinkedInvoice = Boolean(linkedInvoice?.invoice_number);
+  const isReleased = !isCreate && jobOrder?.status === "released";
+  const lockAllExceptStatus = !isCreate && hasLinkedInvoice && !isReleased;
+  const lockPartsAndLabor =
+    !isCreate && (isReleased || hasLinkedInvoice);
+  const partsLaborLockMessage = hasLinkedInvoice
+    ? `Parts and labor are locked because invoice ${linkedInvoice?.invoice_number ?? ""} is linked.`
+    : "Parts and labor are locked because this job order is already released.";
+  const isCheckingInvoiceLink = !isCreate && !!jobOrder?.id && !linkedInvoiceChecked;
+  const statusOptions = hasLinkedInvoice
+    ? JOB_ORDER_STATUSES.filter(
+        (status) =>
+          status.value === "completed" ||
+          status.value === "released" ||
+          status.value === jobOrder?.status
+      )
+    : JOB_ORDER_STATUSES;
+  const canSubmitUpdate =
+    linkedInvoiceChecked &&
+    !isReleased &&
+    (!hasLinkedInvoice || canRelease);
+  const canSubmit = isCreate ? canSubmitCreate : canSubmitUpdate;
+
+  const isLoadingApprovedEstimatesList =
+    isCreate &&
+    active &&
+    (!approvedEstimatesLoaded ||
+      isLoadingApprovedEstimates ||
+      isFetchingApprovedEstimates);
+
+  const isLoadingUnitsForVehicle =
+    isCreate &&
+    active &&
+    !!vehicleId &&
+    !!selectedEstimateId &&
+    (isLoadingAvailableUnits || isFetchingAvailableUnits);
+
+  const isCreateFormInitializing =
+    isLoadingApprovedEstimatesList ||
+    isEstimatePrefillLoading ||
+    isLoadingUnitsForVehicle ||
+    dialogDataLoading;
+
+  const isFormInitializing = isCreate
+    ? isCreateFormInitializing
+    : isCheckingInvoiceLink;
+
+  const formLoadingMessage = dialogDataLoading
+    ? "Loading form data..."
+    : isLoadingApprovedEstimatesList
+      ? "Loading approved estimates..."
+      : isEstimatePrefillLoading
+        ? "Loading estimate details..."
+        : isLoadingUnitsForVehicle
+          ? "Loading unit logs..."
+          : isCheckingInvoiceLink
+            ? "Checking invoice link..."
+            : "Loading...";
+
+  const isFormDisabled = isFormInitializing || isLoading;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <div className="relative">
+        {isFormInitializing && (
+          <div
+            className="absolute inset-0 z-10 flex min-h-[12rem] items-center justify-center rounded-lg bg-background/80"
+            aria-hidden="false"
+          >
+            <LoadingSpinner label={formLoadingMessage} />
+          </div>
+        )}
+        <fieldset
+          disabled={isFormDisabled}
+          className="min-w-0 space-y-6 border-0 p-0 m-0 disabled:pointer-events-none disabled:opacity-60"
+        >
       {isCreate && (
         <section className="space-y-3">
           <StepHeading
@@ -274,7 +499,7 @@ export function JobOrderForm({
               </Select>
             )}
           />
-          {approvedEstimates.length === 0 && (
+          {approvedEstimatesLoaded && approvedEstimates.length === 0 && (
             <p className="text-sm text-amber-600 dark:text-amber-400">
               No approved estimates are available. Approve an estimate first, or
               use one that does not already have a job order.
@@ -297,7 +522,22 @@ export function JobOrderForm({
         </div>
       )}
 
-      {isCreate && estimateId && (
+      {lockAllExceptStatus && (
+        <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-medium">Invoice linked — job order is locked</p>
+            <p className="mt-1">
+              Only status can be changed (Completed or Released).{" "}
+              {canRelease
+                ? "Invoice is paid — set status to Released and click Update."
+                : "Record full payment on the invoice before releasing the unit."}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isCreate && selectedEstimate && (
         <section className="space-y-3">
           <StepHeading
             step={2}
@@ -310,28 +550,28 @@ export function JobOrderForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>Customer *</Label>
-          <Controller
-            name="customer_id"
-            control={control}
-            render={({ field }) => (
-              <Select
-                value={field.value}
-                onValueChange={field.onChange}
-                disabled={lockCustomerVehicle}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a customer" />
-                </SelectTrigger>
-                <SelectContent>
-                  {customers.map((customer) => (
-                    <SelectItem key={customer.id} value={customer.id}>
-                      {customer.full_name} ({customer.customer_number})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
+          {lockCustomerVehicle ? (
+            <Input value={lockedCustomerLabel} disabled readOnly />
+          ) : (
+            <Controller
+              name="customer_id"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.id}>
+                        {customer.full_name} ({customer.customer_number})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          )}
           {errors.customer_id && (
             <p className="text-sm text-destructive">
               {errors.customer_id.message}
@@ -341,28 +581,36 @@ export function JobOrderForm({
 
         <div className="space-y-2">
           <Label>Vehicle *</Label>
-          <Controller
-            name="vehicle_id"
-            control={control}
-            render={({ field }) => (
-              <Select
-                value={field.value}
-                onValueChange={field.onChange}
-                disabled={!customerId || lockCustomerVehicle}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a vehicle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vehicles.map((vehicle) => (
-                    <SelectItem key={vehicle.id} value={vehicle.id}>
-                      {vehicle.plate_number} — {vehicle.brand} {vehicle.model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
+          {lockCustomerVehicle ? (
+            <Input
+              value={lockedVehicleLabel || "Loading vehicle from estimate..."}
+              disabled
+              readOnly
+            />
+          ) : (
+            <Controller
+              name="vehicle_id"
+              control={control}
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={!customerId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a vehicle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vehicles.map((vehicle) => (
+                      <SelectItem key={vehicle.id} value={vehicle.id}>
+                        {vehicle.plate_number} — {vehicle.brand} {vehicle.model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          )}
           {errors.vehicle_id && (
             <p className="text-sm text-destructive">
               {errors.vehicle_id.message}
@@ -370,8 +618,7 @@ export function JobOrderForm({
           )}
           {lockCustomerVehicle && (
             <p className="text-sm text-muted-foreground">
-              Customer and vehicle are fixed from the linked estimate and unit
-              log.
+              Customer and vehicle are taken from the selected estimate.
             </p>
           )}
         </div>
@@ -384,16 +631,37 @@ export function JobOrderForm({
             name="status"
             control={control}
             render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
+              <Select
+                value={field.value}
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  if (value === "completed" || value === "released") {
+                    if (!watch("date_completed")) {
+                      setValue(
+                        "date_completed",
+                        new Date().toISOString().split("T")[0]
+                      );
+                    }
+                  } else {
+                    setValue("date_completed", "");
+                  }
+                }}
+                disabled={isReleased || isCheckingInvoiceLink}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {JOB_ORDER_STATUSES.map((status) => (
+                  {statusOptions.map((status) => (
                     <SelectItem
                       key={status.value}
                       value={status.value}
-                      disabled={status.value === "released" && !canRelease}
+                      disabled={
+                        (status.value === "released" && !canRelease) ||
+                        (hasLinkedInvoice &&
+                          status.value !== "completed" &&
+                          status.value !== "released")
+                      }
                     >
                       {status.label}
                       {status.value === "released" && !canRelease
@@ -405,7 +673,7 @@ export function JobOrderForm({
               </Select>
             )}
           />
-          {!canRelease && releaseBlockMessage && (
+          {!canRelease && releaseBlockMessage && !isReleased && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
               {releaseBlockMessage}
             </p>
@@ -414,7 +682,13 @@ export function JobOrderForm({
 
         <div className="space-y-2">
           <Label htmlFor="date_started">Date Started</Label>
-          <Input id="date_started" type="date" {...register("date_started")} />
+          <Input
+            id="date_started"
+            type="date"
+            disabled={lockAllExceptStatus || isReleased}
+            readOnly={lockAllExceptStatus || isReleased}
+            {...register("date_started")}
+          />
         </div>
 
         <div className="space-y-2">
@@ -422,14 +696,26 @@ export function JobOrderForm({
           <Input
             id="date_completed"
             type="date"
+            disabled={lockAllExceptStatus || isReleased || !isWorkFinished}
+            readOnly={lockAllExceptStatus || isReleased || !isWorkFinished}
             {...register("date_completed")}
           />
+          {!isWorkFinished && (
+            <p className="text-xs text-muted-foreground">
+              Auto-filled when status is set to Completed or Released.
+            </p>
+          )}
         </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="assigned_technician">Assigned Technician</Label>
-        <Input id="assigned_technician" {...register("assigned_technician")} />
+        <Input
+          id="assigned_technician"
+          disabled={lockAllExceptStatus || isReleased}
+          readOnly={lockAllExceptStatus || isReleased}
+          {...register("assigned_technician")}
+        />
       </div>
 
       <div className="space-y-2">
@@ -437,6 +723,8 @@ export function JobOrderForm({
         <Textarea
           id="repair_description"
           rows={3}
+          disabled={lockAllExceptStatus || isReleased}
+          readOnly={lockAllExceptStatus || isReleased}
           {...register("repair_description")}
         />
       </div>
@@ -444,28 +732,42 @@ export function JobOrderForm({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Parts Used</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              append({
-                part_name: "",
-                quantity: 1,
-                unit_price: 0,
-                inventory_item_id: "",
-              })
-            }
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Part
-          </Button>
+          {!lockPartsAndLabor && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                append({
+                  part_name: "",
+                  quantity: 1,
+                  unit_price: 0,
+                  inventory_item_id: "",
+                })
+              }
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Part
+            </Button>
+          )}
         </div>
 
-        {fields.length === 0 ? (
+        {lockPartsAndLabor && (
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            {partsLaborLockMessage}
+          </p>
+        )}
+
+        {isCreate && isEstimatePrefillLoading && selectedEstimateId ? (
+          <p className="text-sm text-muted-foreground">
+            Loading parts from estimate...
+          </p>
+        ) : fields.length === 0 ? (
           <p className="text-sm text-muted-foreground">No parts added yet.</p>
         ) : (
-          <div className="space-y-3">
+          <div
+            className={`space-y-3 ${lockPartsAndLabor ? "pointer-events-none opacity-60" : ""}`}
+          >
             {fields.map((field, index) => (
               <div
                 key={field.id}
@@ -478,6 +780,7 @@ export function JobOrderForm({
                     onValueChange={(value) =>
                       handleInventorySelect(index, value)
                     }
+                    disabled={lockPartsAndLabor}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Optional" />
@@ -493,7 +796,11 @@ export function JobOrderForm({
                 </div>
                 <div className="sm:col-span-3">
                   <Label className="text-xs">Part Name *</Label>
-                  <Input {...register(`parts.${index}.part_name`)} />
+                  <Input
+                    {...register(`parts.${index}.part_name`)}
+                    disabled={lockPartsAndLabor}
+                    readOnly={lockPartsAndLabor}
+                  />
                 </div>
                 <div className="sm:col-span-2">
                   <Label className="text-xs">Qty *</Label>
@@ -502,6 +809,8 @@ export function JobOrderForm({
                     step="1"
                     min="1"
                     {...register(`parts.${index}.quantity`)}
+                    disabled={lockPartsAndLabor}
+                    readOnly={lockPartsAndLabor}
                   />
                 </div>
                 <div className="sm:col-span-2">
@@ -510,31 +819,64 @@ export function JobOrderForm({
                     type="number"
                     step="0.01"
                     {...register(`parts.${index}.unit_price`)}
+                    disabled={lockPartsAndLabor}
+                    readOnly={lockPartsAndLabor}
                   />
                 </div>
-                <div className="flex items-end sm:col-span-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => remove(index)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
+                {!lockPartsAndLabor && (
+                  <div className="flex items-end sm:col-span-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => remove(index)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
 
-        {partsTotal > 0 && (
-          <p className="text-right text-sm text-muted-foreground">
-            Parts total: {formatCurrency(partsTotal)}
-          </p>
-        )}
+        <div
+          className={`grid gap-4 sm:grid-cols-3 ${lockPartsAndLabor ? "pointer-events-none opacity-60" : ""}`}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="labor_cost">Labor Cost</Label>
+            <Input
+              id="labor_cost"
+              type="number"
+              step="0.01"
+              min="0"
+              disabled={lockPartsAndLabor}
+              readOnly={lockPartsAndLabor}
+              {...register("labor_cost")}
+            />
+            {errors.labor_cost && (
+              <p className="text-sm text-destructive">
+                {errors.labor_cost.message}
+              </p>
+            )}
+            {isCreate && selectedEstimate && (
+              <p className="text-xs text-muted-foreground">
+                Pre-filled from estimate. Adjust if actual labor differs.
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Parts Total</Label>
+            <Input value={formatCurrency(partsTotal)} disabled readOnly />
+          </div>
+          <div className="space-y-2">
+            <Label>Total</Label>
+            <Input value={formatCurrency(jobOrderTotal)} disabled readOnly />
+          </div>
+        </div>
       </div>
 
-      {isCreate && estimateId && (
+      {isCreate && selectedEstimate && (
         <section className="space-y-3">
           <StepHeading
             step={3}
@@ -546,7 +888,15 @@ export function JobOrderForm({
             }
           />
 
-          {!hasUnitLog ? (
+          {isLoadingUnitsForVehicle ? (
+            <div className="rounded-lg border p-3">
+              <LoadingSpinner
+                size="sm"
+                label="Loading unit logs..."
+                className="py-4"
+              />
+            </div>
+          ) : !hasUnitLog ? (
             <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
@@ -624,20 +974,36 @@ export function JobOrderForm({
           )}
         </section>
       )}
+        </fieldset>
+      </div>
 
-      <div className="flex justify-end gap-2 pt-2">
-        {onCancel && (
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
+      <div className="space-y-2 pt-2">
+        {!isCreate && !canSubmitUpdate && !isLoading && !isFormInitializing && (
+          <p className="text-right text-xs text-muted-foreground">
+            {isReleased
+              ? "Released job orders cannot be updated."
+              : hasLinkedInvoice && !canRelease
+                ? "Update is disabled until the linked invoice is fully paid."
+                : null}
+          </p>
         )}
-        <Button type="submit" disabled={isLoading || !canSubmitCreate}>
-          {isLoading
-            ? "Saving..."
-            : jobOrder
-              ? "Update Job Order"
-              : "Create Job Order"}
-        </Button>
+        <div className="flex justify-end gap-2">
+          {onCancel && (
+            <Button type="button" variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button
+            type="submit"
+            disabled={isLoading || !canSubmit || isFormInitializing}
+          >
+            {isLoading
+              ? "Saving..."
+              : jobOrder
+                ? "Update Job Order"
+                : "Create Job Order"}
+          </Button>
+        </div>
       </div>
     </form>
   );
