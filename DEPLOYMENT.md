@@ -105,7 +105,75 @@ cp .env.example .env.local
 
 > **Security:** Never expose `SUPABASE_SERVICE_ROLE_KEY` to the client. Use only in server actions.
 
-## 3. Local Development
+## 3. Environments (Develop, Staging, UAT, Production)
+
+Use **separate Supabase projects** for each environment so test data never touches live shops.
+
+| Environment | Git branch | Purpose | Supabase (example) | Vercel project (example) |
+|-------------|------------|---------|--------------------|---------------------------|
+| **Development** | `develop` | Daily coding & experiments | `talyerhub-develop` | `talyerhub-develop` |
+| **Staging** | `staging` | Internal QA / integration testing | `talyerhub-staging` | `talyerhub-staging` |
+| **UAT** | `uat` | User acceptance — final sign-off before live | `talyerhub-uat` | `talyerhub-uat` |
+| **Production** | `main` | Live customers | `talyerhub-prod` | `talyerhub-prod` |
+
+**UAT** (User Acceptance Testing) = almost-production environment where you (or a pilot shop) verify flows before release. **Staging** = dev team testing; **UAT** = business / owner approval.
+
+### Workflow
+
+```
+develop  →  staging  →  uat  →  main
+  code        QA         sign-off   production
+```
+
+```bash
+# Promote develop → staging
+git checkout staging
+git merge develop
+git push origin staging
+
+# Promote staging → uat
+git checkout uat
+git merge staging
+git push origin uat
+
+# Promote uat → production
+git checkout main
+git merge uat
+git push origin main
+```
+
+### Supabase (one project per environment)
+
+For **each** of develop, staging, uat, and prod:
+
+1. Create a Supabase project  
+2. Run `supabase/complete_schema.sql` once (empty project only)  
+3. Auth → Email ON, **Confirm email OFF**  
+4. Set **Site URL** to that environment’s app URL  
+5. Promote super admin (SQL in section 1)  
+6. Optional: run `seed.sql` on **develop/staging/uat only** — never on production  
+
+### Vercel (recommended: one project per environment)
+
+| Vercel project | Production Branch | Supabase |
+|----------------|-------------------|----------|
+| `talyerhub-prod` | `main` | prod |
+| `talyerhub-uat` | `uat` | uat |
+| `talyerhub-staging` | `staging` | staging |
+| `talyerhub-develop` | `develop` | develop |
+
+For each Vercel project: import `pyxitsolutions/talyer-hub`, set **Production Branch** to the branch in the table, and add env vars for that Supabase project. Set `NEXT_PUBLIC_APP_URL` to that project’s URL.
+
+### Local `.env.local`
+
+Point your machine at the **develop** Supabase project:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co   # develop project
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+## 4. Local Development
 
 ```bash
 npm install
@@ -120,7 +188,7 @@ Open [http://localhost:3000](http://localhost:3000)
 2. Create account with shop details
 3. The system creates: shop → profile → owner role assignment
 
-## 4. Deploy to Vercel
+## 5. Deploy to Vercel
 
 ### Via CLI
 
@@ -139,7 +207,7 @@ Add all variables from `.env.example` in Project Settings → Environment Variab
 - **Build Command:** `npm run build`
 - **Output Directory:** `.next` (default)
 
-## 5. Production Best Practices
+## 6. Production Best Practices
 
 ### Security
 
@@ -172,7 +240,7 @@ Add all variables from `.env.example` in Project Settings → Environment Variab
 - Enable Supabase daily backups (Pro plan)
 - Export critical reports regularly via the Reports module
 
-## 6. Role-Based Access
+## 7. Role-Based Access
 
 | Role | Access |
 |------|--------|
@@ -183,7 +251,7 @@ Add all variables from `.env.example` in Project Settings → Environment Variab
 
 Assign roles via the `user_roles` table after creating team members.
 
-## 7. Post-Deployment Checklist
+## 8. Post-Deployment Checklist
 
 - [ ] Run `supabase/complete_schema.sql` (new project) **or** migrations 001–018 individually
 - [ ] Configure auth redirect URLs
@@ -198,7 +266,7 @@ Assign roles via the `user_roles` table after creating team members.
 - [ ] Test forgot-password page shows admin-contact instructions (no email sent)
 - [ ] Test admin password reset from Platform Admin → Shops → Reset password
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
