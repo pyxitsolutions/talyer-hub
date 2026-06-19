@@ -31,6 +31,67 @@ function resolveDefaultShopName(fullName: string, shopName?: string) {
   return fullName.trim();
 }
 
+async function getOwnerRoleId(
+  supabase: NonNullable<ReturnType<typeof createAdminClient>>
+): Promise<{ roleId: string } | { error: string }> {
+  const { data: ownerRole, error: roleError } = await supabase
+    .from("roles")
+    .select("id")
+    .eq("name", "owner")
+    .maybeSingle();
+
+  if (roleError) {
+    return { error: roleError.message };
+  }
+
+  if (!ownerRole) {
+    return {
+      error:
+        "System roles are not set up. Run the roles seed SQL in Supabase (see DEPLOYMENT.md).",
+    };
+  }
+
+  return { roleId: ownerRole.id };
+}
+
+async function ensureOwnerRole(
+  supabase: NonNullable<ReturnType<typeof createAdminClient>>,
+  userId: string,
+  shopId: string
+): Promise<{ error?: string }> {
+  const { data: existingRole, error: existingRoleError } = await supabase
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (existingRoleError) {
+    return { error: existingRoleError.message };
+  }
+
+  if (existingRole) {
+    return {};
+  }
+
+  const ownerRoleResult = await getOwnerRoleId(supabase);
+  if ("error" in ownerRoleResult) {
+    return { error: ownerRoleResult.error };
+  }
+
+  const { error: userRoleError } = await supabase.from("user_roles").insert({
+    user_id: userId,
+    role_id: ownerRoleResult.roleId,
+    shop_id: shopId,
+  });
+
+  if (userRoleError) {
+    return { error: userRoleError.message };
+  }
+
+  return {};
+}
+
 async function setupShop(input: SetupShopInput) {
   const supabase = createAdminClient();
 
@@ -73,19 +134,14 @@ async function setupShop(input: SetupShopInput) {
     return { error: profileError.message };
   }
 
-  const { data: ownerRole, error: roleError } = await supabase
-    .from("roles")
-    .select("id")
-    .eq("name", "owner")
-    .single();
-
-  if (roleError || !ownerRole) {
-    return { error: roleError?.message ?? "Owner role not found." };
+  const ownerRoleResult = await getOwnerRoleId(supabase);
+  if ("error" in ownerRoleResult) {
+    return { error: ownerRoleResult.error };
   }
 
   const { error: userRoleError } = await supabase.from("user_roles").insert({
     user_id: input.userId,
-    role_id: ownerRole.id,
+    role_id: ownerRoleResult.roleId,
     shop_id: shop.id,
   });
 
@@ -174,6 +230,16 @@ export async function registerShopAccount(input: RegisterShopInput) {
 
     if (shopResult.error) {
       return { error: shopResult.error };
+    }
+  } else {
+    const roleResult = await ensureOwnerRole(
+      supabase,
+      userResult.userId,
+      existingProfile.shop_id
+    );
+
+    if (roleResult.error) {
+      return { error: roleResult.error };
     }
   }
 

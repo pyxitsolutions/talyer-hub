@@ -23,6 +23,20 @@ In Supabase → SQL Editor, run the entire file on a **new empty** project:
 
 Do **not** run it twice on the same database (duplicate errors).
 
+If registration fails with **"Cannot coerce the result to a single JSON object"** or **"System roles are not set up"**, the `roles` table is missing seed data. Run once in SQL Editor:
+
+```sql
+INSERT INTO public.roles (id, name, description) VALUES
+  ('a0000000-0000-0000-0000-000000000001', 'owner', 'Shop owner with full access'),
+  ('a0000000-0000-0000-0000-000000000002', 'service_advisor', 'Service advisor managing estimates and customers'),
+  ('a0000000-0000-0000-0000-000000000003', 'technician', 'Technician performing repairs'),
+  ('a0000000-0000-0000-0000-000000000004', 'cashier', 'Cashier handling billing and payments'),
+  ('a0000000-0000-0000-0000-000000000005', 'super_admin', 'Platform administrator with cross-shop access')
+ON CONFLICT (name) DO NOTHING;
+```
+
+Then try **register** again (or **sign in** if the auth user was already created).
+
 ### Reset / wipe data
 
 `supabase/reset.sql` — run in SQL Editor:

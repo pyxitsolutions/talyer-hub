@@ -49,6 +49,14 @@ CREATE TABLE roles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+INSERT INTO roles (id, name, description) VALUES
+  ('a0000000-0000-0000-0000-000000000001', 'owner', 'Shop owner with full access'),
+  ('a0000000-0000-0000-0000-000000000002', 'service_advisor', 'Service advisor managing estimates and customers'),
+  ('a0000000-0000-0000-0000-000000000003', 'technician', 'Technician performing repairs'),
+  ('a0000000-0000-0000-0000-000000000004', 'cashier', 'Cashier handling billing and payments'),
+  ('a0000000-0000-0000-0000-000000000005', 'super_admin', 'Platform administrator with cross-shop access')
+ON CONFLICT (name) DO NOTHING;
+
 -- ============================================================
 -- PROFILES (extends auth.users)
 -- ============================================================
