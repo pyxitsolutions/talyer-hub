@@ -6,8 +6,9 @@ import autoTable from "jspdf-autotable";
 
 import { Button } from "@/components/ui/button";
 import { exportToExcel } from "@/lib/excel/export";
-import { formatCurrency, formatCurrencyForPDF } from "@/lib/utils";
+import { formatCurrencyForPDF } from "@/lib/utils";
 import type { ReportData } from "../actions";
+import { formatReportSummaryValue, isCurrencyColumnKey } from "../format";
 
 interface ReportExportProps {
   report: ReportData | null;
@@ -15,15 +16,8 @@ interface ReportExportProps {
   allowExcelExport?: boolean;
 }
 
-function formatSummaryValue(value: string | number, forPdf = false): string {
-  if (typeof value === "number") {
-    return value >= 100
-      ? forPdf
-        ? formatCurrencyForPDF(value)
-        : formatCurrency(value)
-      : String(value);
-  }
-  return value;
+function formatSummaryValue(value: string | number, key: string, forPdf = false): string {
+  return formatReportSummaryValue(key, value, { forPdf });
 }
 
 export function ReportExport({
@@ -36,7 +30,7 @@ export function ReportExport({
   const handleExcelExport = () => {
     const summaryRows = Object.entries(report.summary).map(([key, value]) => ({
       Metric: key,
-      Value: formatSummaryValue(value),
+      Value: formatSummaryValue(value, key),
     }));
 
     exportToExcel(
@@ -58,7 +52,7 @@ export function ReportExport({
       const body = report.rows.map((row) =>
         headers.map((h) => {
           const val = row[h];
-          return typeof val === "number" && h.toLowerCase().includes("amount")
+          return typeof val === "number" && isCurrencyColumnKey(h)
             ? formatCurrencyForPDF(val)
             : String(val);
         })
@@ -86,7 +80,7 @@ export function ReportExport({
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     for (const [key, value] of Object.entries(report.summary)) {
-      doc.text(`${key}: ${formatSummaryValue(value, true)}`, 14, y);
+      doc.text(`${key}: ${formatSummaryValue(value, key, true)}`, 14, y);
       y += 6;
     }
 

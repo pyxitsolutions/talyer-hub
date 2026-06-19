@@ -22,6 +22,7 @@ import {
 import { useShop } from "@/lib/hooks/use-shop";
 import { formatCurrency } from "@/lib/utils";
 import { generateReport, type ReportData } from "../actions";
+import { formatReportSummaryValue, isCurrencyColumnKey } from "../format";
 import { ReportExport } from "./report-export";
 import { ReportFilters } from "./report-filters";
 
@@ -86,17 +87,7 @@ export function ReportsView() {
       header: key,
       cell: ({ row }) => {
         const val = row.original[key];
-        if (
-          typeof val === "number" &&
-          (key.toLowerCase().includes("amount") ||
-            key.toLowerCase().includes("sales") ||
-            key.toLowerCase().includes("expenses") ||
-            key.toLowerCase().includes("profit") ||
-            key.toLowerCase().includes("total") ||
-            key.toLowerCase().includes("paid") ||
-            key.toLowerCase().includes("billed") ||
-            key.toLowerCase().includes("collected"))
-        ) {
+        if (typeof val === "number" && isCurrencyColumnKey(key)) {
           return formatCurrency(val);
         }
         return String(val);
@@ -185,19 +176,7 @@ export function ReportsView() {
                           </CardHeader>
                           <CardContent>
                             <p className="text-xl font-semibold">
-                              {typeof value === "number" &&
-                              key.toLowerCase().includes("margin")
-                                ? `${value}%`
-                                : typeof value === "number" &&
-                                    (key.toLowerCase().includes("total") ||
-                                      key.toLowerCase().includes("billed") ||
-                                      key.toLowerCase().includes("collected") ||
-                                      key.toLowerCase().includes("sales") ||
-                                      key.toLowerCase().includes("expenses") ||
-                                      key.toLowerCase().includes("profit") ||
-                                      value >= 100)
-                                  ? formatCurrency(value)
-                                  : String(value)}
+                              {formatReportSummaryValue(key, value)}
                             </p>
                           </CardContent>
                         </Card>
