@@ -6,6 +6,7 @@ import { z } from "zod";
 import { assertProPlan } from "@/lib/auth/plan-guard";
 import { requireOwner } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { findAuthUserByEmail } from "@/lib/supabase/find-user-by-email";
 import { createClient } from "@/lib/supabase/server";
 import type { RoleName } from "@/types/database";
 
@@ -38,32 +39,6 @@ const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
   service_advisor: "service advisor",
   cashier: "cashier",
 };
-
-async function findUserByEmail(email: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    return null;
-  }
-
-  const response = await fetch(
-    `${url}/auth/v1/admin/users?filter=${encodeURIComponent(`email.eq.${email}`)}&per_page=1`,
-    {
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    }
-  );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const body = (await response.json()) as { users?: { id: string; email?: string }[] };
-  return body.users?.[0] ?? null;
-}
 
 export async function getShopTeamMembers(): Promise<ActionResult<ShopTeamMember[]>> {
   try {
@@ -165,7 +140,7 @@ async function addShopMember(
   const phone = parsed.data.phone?.trim() || null;
   const roleLabel = STAFF_ROLE_LABELS[role];
 
-  const existingUser = await findUserByEmail(email);
+  const existingUser = await findAuthUserByEmail(email);
   if (existingUser) {
     const { data: existingProfile } = await admin
       .from("profiles")

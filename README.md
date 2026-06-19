@@ -1,6 +1,6 @@
 # TalyerHub
 
-Auto care shop management system for talyers. Production-ready, SaaS-ready automotive workshop ERP built with Next.js, TypeScript, Supabase, and shadcn/ui. Supports multiple repair shops through multi-tenant architecture with Row Level Security.
+Auto care shop management system for talyers. Multi-tenant SaaS built with Next.js, TypeScript, Supabase, and shadcn/ui. Each shop is isolated via `shop_id` and Row Level Security.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
@@ -9,18 +9,23 @@ Auto care shop management system for talyers. Production-ready, SaaS-ready autom
 
 ## Features
 
-- **Multi-Tenant SaaS** — Each shop is isolated via `shop_id` + Supabase RLS
-- **Role-Based Access** — Owner, Service Advisor, Technician, Cashier
-- **Dashboard** — KPIs, revenue/expense/profit charts, repair category analytics
-- **Customer & Vehicle Management** — Full CRUD with service history
-- **Repair Estimates** — Draft/approve/reject workflow, PDF export
-- **Job Orders** — Convert from estimates, inventory deduction, status tracking
-- **Billing Invoices** — Payment tracking, QR verification, PDF export
-- **Inventory** — Stock in/out/adjustment, low-stock alerts, auto-deduction
-- **Units Received** — PMS, minor/general/body repair monitoring
-- **Sales & Expenses** — Analytics with P&L calculations
-- **Reports** — PDF and Excel export with date range filters
-- **Dark Mode** — Stripe/Linear-inspired modern UI
+- **Multi-tenant SaaS** — Shops isolated by `shop_id` + Supabase RLS
+- **Shop registration & approval** — Pending → Platform Admin approves → active
+- **Basic & Pro plans** — Basic ₱349/mo, Pro ₱649/mo (manual billing via support)
+- **Role-based access** — Owner, Service Advisor, Technician, Cashier (+ Platform Super Admin)
+- **Dashboard** — KPIs and charts (advanced charts on Pro)
+- **Customers & vehicles** — CRUD, soft deactivate, service history
+- **Repair estimates** — Draft / approve / reject / released, PDF export
+- **Job orders** — From estimates, inventory deduction, status workflow
+- **Invoices** — Payments, QR verification, PDF export
+- **Units received** — Visit logging (Basic + Pro)
+- **Inventory, sales, expenses** — Pro plan
+- **Reports** — Basic: units, job orders, invoices (PDF). Pro: sales, expenses, P&L + Excel
+- **Activity log** — Pro plan audit trail
+- **Team management** — Pro: advisors, technicians, cashiers
+- **Platform admin** — Approve shops, assign plan, deactivate, reset passwords, MRR reports
+- **Privacy & terms** — `/privacy`, `/terms`, consent on register (R.A. 10173)
+- **Dark mode**
 
 ## Tech Stack
 
@@ -30,125 +35,137 @@ Auto care shop management system for talyers. Production-ready, SaaS-ready autom
 | UI | shadcn/ui, Lucide Icons, Recharts |
 | Forms | React Hook Form, Zod |
 | Data | TanStack Query, TanStack Table |
-| Backend | Next.js Server Actions, Route Handlers |
+| Backend | Next.js Server Actions |
 | Database | Supabase PostgreSQL |
 | Auth | Supabase Authentication |
+| Hosting | Vercel (recommended) |
 | Export | jsPDF, xlsx, QRCode |
 
 ## Quick Start
 
 ```bash
-# Install dependencies
 npm install
 
-# Configure environment
 cp .env.example .env.local
-# Edit .env.local with your Supabase credentials
+# Add Supabase URL, anon key, service role key
 
-# Run supabase/complete_schema.sql in Supabase SQL Editor (see DEPLOYMENT.md)
+# New Supabase project → SQL Editor → run:
+#   supabase/complete_schema.sql
 
-# Start development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and register your first shop at `/register`.
+Open [http://localhost:3000](http://localhost:3000) → `/register` → wait for Platform Admin approval.
 
-## Folder Structure
+Promote super admin (SQL Editor, after first register or reset):
 
+```sql
+UPDATE profiles SET is_super_admin = true WHERE email = 'your@email.com';
+
+DELETE FROM shops
+WHERE id IN (
+  SELECT shop_id FROM profiles
+  WHERE email = 'your@email.com' AND shop_id IS NOT NULL
+);
 ```
-src/
-├── app/
-│   ├── (auth)/              # Login, register, password reset
-│   │   ├── login/
-│   │   ├── register/
-│   │   ├── forgot-password/
-│   │   └── reset-password/
-│   ├── (dashboard)/         # Protected dashboard routes
-│   │   └── dashboard/
-│   │       ├── page.tsx     # Dashboard KPIs & charts
-│   │       ├── customers/
-│   │       ├── vehicles/
-│   │       ├── estimates/
-│   │       ├── job-orders/
-│   │       ├── invoices/
-│   │       ├── inventory/
-│   │       ├── units-received/
-│   │       ├── sales/
-│   │       ├── expenses/
-│   │       ├── service-history/
-│   │       ├── reports/
-│   │       └── settings/
-│   ├── globals.css
-│   └── layout.tsx
-├── components/
-│   ├── ui/                  # shadcn/ui primitives
-│   ├── layout/              # Sidebar, header, mobile nav
-│   ├── providers/           # Theme, query providers
-│   └── shared/              # Data table, page header, badges
-├── features/                # Feature-based modules
-│   ├── auth/
-│   ├── customers/
-│   ├── vehicles/
-│   ├── estimates/
-│   ├── job-orders/
-│   ├── invoices/
-│   ├── inventory/
-│   ├── units-received/
-│   ├── sales/
-│   ├── expenses/
-│   ├── service-history/
-│   ├── reports/
-│   ├── dashboard/
-│   └── settings/
-├── lib/
-│   ├── supabase/            # Client, server, middleware
-│   ├── pdf/                 # PDF generation
-│   ├── excel/               # Excel export
-│   ├── hooks/               # useShop, useDebounce
-│   ├── actions/             # Registration server action
-│   ├── auth.ts              # getShopId helper
-│   ├── rbac.ts              # Role permissions
-│   ├── constants.ts
-│   └── utils.ts
-└── types/
-    └── database.ts          # TypeScript types
-
-supabase/
-├── complete_schema.sql   # Full DB setup (new project)
-└── reset.sql             # Clear business data or full wipe
-```
-
-## Database Schema
-
-All business tables include: `id` (UUID), `shop_id`, `created_at`, `updated_at`
-
-| Table | Purpose |
-|-------|---------|
-| `shops` | Tenant organizations |
-| `profiles` | User profiles linked to auth.users |
-| `roles` / `user_roles` | RBAC |
-| `customers` | Customer records |
-| `vehicles` | Vehicle records (linked to customers) |
-| `repair_estimates` / `repair_estimate_items` | Repair estimates |
-| `job_orders` / `job_order_parts` | Work orders |
-| `invoices` / `invoice_items` | Billing |
-| `inventory_items` / `inventory_transactions` | Stock management |
-| `units_received` | Unit intake tracking |
-| `expenses` | Shop expenses |
-| `sales_records` | Sales tracking |
 
 ## Environment Variables
 
-See `.env.example` for all required variables. See [DEPLOYMENT.md](./DEPLOYMENT.md) for full setup and production deployment guide.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only (registration, team) |
+| `NEXT_PUBLIC_APP_URL` | Yes | Deployed app URL (invoice QR codes) |
+| `NEXT_PUBLIC_APP_NAME` | No | Default: `TalyerHub` |
+
+See `.env.example` and [DEPLOYMENT.md](./DEPLOYMENT.md) for Vercel, Supabase auth, and per-environment setup.
+
+## Git Branches & Environments
+
+| Branch | Environment |
+|--------|-------------|
+| `develop` | Development |
+| `staging` | Internal QA |
+| `uat` | User acceptance testing |
+| `main` | Production |
+
+Promotion flow: `develop` → `staging` → `uat` → `main`
+
+## Supabase SQL
+
+| File | Use |
+|------|-----|
+| `supabase/complete_schema.sql` | Full setup on a **new empty** project (run once) |
+| `supabase/reset.sql` | Block 1: clear business data. Block 2: full wipe |
+
+Full reset with super admin via CLI:
+
+```bash
+npm run db:fresh-start
+```
 
 ## Scripts
 
 ```bash
-npm run dev      # Development server
-npm run build    # Production build
-npm run start    # Production server
-npm run lint     # ESLint
+npm run dev           # Development server
+npm run build         # Production build
+npm run start         # Production server
+npm run lint          # ESLint
+npm run db:reset      # Wipe data + optional super admin (.env.local)
+npm run db:fresh-start
+npm run favicon       # Regenerate favicon from logo
 ```
+
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── (auth)/                 # login, register, password reset
+│   ├── (dashboard)/            # shop dashboard + status pages
+│   │   ├── dashboard/          # customers, JO, invoices, reports, …
+│   │   │   ├── admin/            # platform admin (super admin)
+│   │   │   └── upgrade/          # plan upgrade page
+│   │   ├── pending-approval/
+│   │   ├── shop-disabled/
+│   │   └── shop-rejected/
+│   ├── privacy/ & terms/
+│   └── verify/[code]/          # public invoice QR verify
+├── components/                 # ui, layout, legal, shared
+├── features/                   # domain modules (customers, invoices, …)
+│   ├── platform-admin/
+│   └── team/
+├── lib/                        # auth, plans, supabase, pdf, rbac
+└── types/database.ts
+
+supabase/
+├── complete_schema.sql
+└── reset.sql
+```
+
+## Database (main tables)
+
+All business tables include `shop_id`, `created_at`, `updated_at`.
+
+| Table | Purpose |
+|-------|---------|
+| `shops` | Tenants (`status`, `plan`: basic/pro) |
+| `profiles` / `user_roles` | Users and RBAC |
+| `customers` / `vehicles` | Customer records |
+| `repair_estimates` / `job_orders` / `invoices` | Core workflow |
+| `inventory_*` / `units_received` | Stock and visit logs |
+| `expenses` / `sales_records` | Finance |
+| `activity_logs` | Pro audit trail |
+
+## Deployment
+
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for:
+
+- Supabase setup (confirm email **OFF**, Site URL)
+- Vercel env vars per environment
+- UAT / staging / prod checklist
+- Post-deploy smoke tests
 
 ## License
 

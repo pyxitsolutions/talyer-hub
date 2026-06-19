@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { findAuthUserByEmail } from "@/lib/supabase/find-user-by-email";
 import { createClient } from "@/lib/supabase/server";
 
 interface SetupShopInput {
@@ -28,32 +29,6 @@ function resolveDefaultShopName(fullName: string, shopName?: string) {
   const trimmed = shopName?.trim();
   if (trimmed) return trimmed;
   return fullName.trim();
-}
-
-async function findUserByEmail(email: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    return null;
-  }
-
-  const response = await fetch(
-    `${url}/auth/v1/admin/users?filter=${encodeURIComponent(`email.eq.${email}`)}&per_page=1`,
-    {
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-    }
-  );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const body = (await response.json()) as { users?: { id: string; email?: string }[] };
-  return body.users?.[0] ?? null;
 }
 
 async function setupShop(input: SetupShopInput) {
@@ -145,7 +120,7 @@ async function resolveUserId(
     return { error: authError?.message ?? "Failed to create account." };
   }
 
-  const existingUser = await findUserByEmail(email);
+  const existingUser = await findAuthUserByEmail(email);
   if (!existingUser) {
     return { error: "This email is already registered. Try signing in instead." };
   }
